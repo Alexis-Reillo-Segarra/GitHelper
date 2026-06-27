@@ -43,6 +43,20 @@ export type PullSummary = {
     url: string;
 };
 
+// Pull Request pendiente en alguno de los repos del usuario (para el dashboard personal).
+// Incluye owner/repo para poder navegar directamente a su análisis.
+export type PendingPR = {
+    owner: string;
+    repo: string;
+    full_name: string;
+    number: number;
+    title: string;
+    author: string | null;
+    created_at: string;
+    url: string;
+    draft: boolean;
+};
+
 // 1.b Selección del proveedor de IA.
 // Se elige con la variable de entorno AI_PROVIDER ("gemini" | "openai").
 // El modelo concreto se puede sobreescribir con AI_MODEL.
@@ -166,6 +180,40 @@ export class GitHubAIService {
             created_at: pull.created_at,
             url: pull.html_url,
         }));
+    }
+
+    // Lista los Pull Requests abiertos en los repos del usuario autenticado
+    // (los que tiene "pendientes de aceptar/revisar"). Usa la búsqueda de GitHub
+    // para resolverlo en una sola petición en lugar de iterar repo por repo.
+    async listPendingPullRequests(): Promise<PendingPR[]> {
+        // getAuthenticatedUser ya valida que exista token y nos da el login
+        const { login } = await this.getAuthenticatedUser();
+
+        const { data } = await this.octokit.search.issuesAndPullRequests({
+            q: `is:pr is:open archived:false user:${login}`,
+            sort: "updated",
+            order: "desc",
+            per_page: 50,
+        });
+
+        return data.items.map((item) => {
+            // repository_url tiene la forma https://api.github.com/repos/OWNER/REPO
+            const segments = item.repository_url.split("/");
+            const repo = segments.pop() ?? "";
+            const owner = segments.pop() ?? "";
+
+            return {
+                owner,
+                repo,
+                full_name: `${owner}/${repo}`,
+                number: item.number,
+                title: item.title,
+                author: item.user?.login ?? null,
+                created_at: item.created_at,
+                url: item.html_url,
+                draft: item.draft ?? false,
+            };
+        });
     }
 
     // El método que une GitHub + IA
