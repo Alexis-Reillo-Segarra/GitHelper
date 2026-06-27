@@ -4,12 +4,25 @@ import { openai } from "@ai-sdk/openai";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 
-// 1. Cómo queremos que la IA nos devuelva los datos
+// Recomendación final del análisis, alineada con la filosofía de Google
+// ("mejora la salud del código" en vez de "perfección"): una escala corta y
+// categórica es más fiable y consistente que una nota holística 1-10.
+export const RECOMENDACIONES = [
+    "aprobar",
+    "cambios_menores",
+    "cambios_mayores",
+    "bloqueado",
+] as const;
+export type Recomendacion = (typeof RECOMENDACIONES)[number];
+
+// 1. Forma del análisis que expone la app (la nota y la recomendación las
+// calcula el sistema; ver computeScore).
 export const PRAnalysisSchema = z.object({
     resumen_ejecutivo: z.string().describe("Resumen de 2 frases de lo que hace el PR"),
     posibles_bugs: z.array(z.string()).describe("Lista de posibles bugs o errores lógicos"),
-    apto_para_merge: z.boolean().describe("True si no hay bugs críticos"),
+    apto_para_merge: z.boolean().describe("True si no hay bugs críticos ni mayores"),
     puntuacion_codigo: z.number().min(1).max(10).describe("Puntuación de calidad del 1 al 10"),
+    recomendacion: z.enum(RECOMENDACIONES).describe("Recomendación categórica de revisión"),
 });
 
 export type PRAnalysis = z.infer<typeof PRAnalysisSchema>;
@@ -97,15 +110,121 @@ export function resolveModel(provider?: AIProvider, model?: string): LanguageMod
     }
 }
 
+// 1.d Estándares de revisión.
+// El modelo NO inventa la nota: solo detecta y clasifica problemas por severidad
+// siguiendo definiciones fijas. La puntuación la calcula el sistema (ver
+// `computeScore`), de modo que el mismo conjunto de problemas da SIEMPRE la misma nota.
+const SCORING_RUBRIC = `Eres un ingeniero de software Senior revisando un Pull Request. Evalúa ÚNICAMENTE el diff proporcionado.
+
+Criterios a revisar, por orden de importancia (basados en el estándar de Google):
+1. Diseño: ¿encajan e interactúan bien las piezas del cambio? ¿pertenece aquí y se integra con el resto del sistema?
+2. Complejidad / over-engineering: ¿es más complejo o genérico de lo necesario? ¿se entiende rápido al leerlo?
+3. Correctitud y bugs: errores lógicos, casos límite, concurrencia.
+4. Seguridad: inyección, fuga de secretos, autenticación y permisos.
+5. Manejo de errores y casos límite.
+6. Tests: ¿hay pruebas correctas para los cambios?
+7. Legibilidad/mantenibilidad y rendimiento.
+
+Clasifica cada problema que encuentres por severidad, de forma ESTRICTA y CONSISTENTE:
+- "critico": bug que rompe funcionalidad, vulnerabilidad de seguridad, fuga de secretos, o cualquier cosa que bloquee el merge.
+- "mayor": problema notable que conviene resolver (diseño deficiente, validación ausente, manejo de errores pobre, deuda técnica relevante, regresión funcional, lógica nueva sin tests).
+- "menor": mejora opcional no bloqueante (estilo, naming, micro-optimización, documentación).
+
+Ejemplos de calibración (para anclar la severidad de forma consistente):
+- "Concatena entrada del usuario en una query SQL sin parametrizar" => critico (seguridad).
+- "Expone una clave/API key o secreto en el código" => critico (fuga de secretos).
+- "No comprueba si el array está vacío antes de acceder a [0]" => mayor (caso límite no manejado).
+- "Añade una rama de error nueva pero ningún test que la cubra" => mayor (tests ausentes en lógica relevante).
+- "Abstracción genérica para un único caso de uso actual" => mayor (over-engineering).
+- "Variable poco descriptiva como 'x' o falta un comentario" => menor (legibilidad).
+
+Reglas obligatorias:
+- Incluye SOLO problemas reales y concretos presentes en el diff; nada genérico ni especulativo. Prioriza precisión sobre exhaustividad (menos ruido, más señal).
+- El mismo diff debe producir SIEMPRE la misma lista de problemas con la misma severidad. Sé reproducible y objetivo.
+- Si el diff está truncado, evalúa solo lo visible y no penalices por lo que falte.
+- "resumen_ejecutivo": 2 frases neutrales sobre qué hace el PR.
+- NO asignes una puntuación numérica: la calcula el sistema a partir de tus problemas. Tu trabajo es detectarlos y clasificarlos correctamente.`;
+
+// Esquema interno que rellena el modelo (no es el público).
+// El modelo entrega problemas clasificados; la nota se deriva en código.
+const ReviewModelSchema = z.object({
+    resumen_ejecutivo: z.string().describe("Resumen de 2 frases de lo que hace el PR"),
+    problemas: z
+        .array(
+            z.object({
+                severidad: z.enum(["critico", "mayor", "menor"]),
+                descripcion: z.string().describe("Problema concreto y real presente en el diff"),
+            }),
+        )
+        .describe("Lista de problemas detectados; vacía si no hay ninguno"),
+});
+
+type ReviewProblema = z.infer<typeof ReviewModelSchema>["problemas"][number];
+
+// Penalización por severidad sobre una base de 10.
+const PENALIZACION: Record<ReviewProblema["severidad"], number> = {
+    critico: 3,
+    mayor: 1.5,
+    menor: 0.5,
+};
+
+// Calcula la puntuación (1-10), la recomendación categórica y la aptitud para
+// merge a partir de los problemas. Es una función pura y determinista:
+// mismos problemas => mismo resultado.
+export function computeScore(problemas: ReviewProblema[]): {
+    puntuacion: number;
+    apto: boolean;
+    recomendacion: Recomendacion;
+} {
+    const criticos = problemas.filter((p) => p.severidad === "critico").length;
+    const mayores = problemas.filter((p) => p.severidad === "mayor").length;
+    const menores = problemas.filter((p) => p.severidad === "menor").length;
+
+    const penalizacion = problemas.reduce(
+        (acc, p) => acc + PENALIZACION[p.severidad],
+        0,
+    );
+
+    // Redondeamos y acotamos al rango [1, 10]
+    const puntuacion = Math.max(1, Math.min(10, Math.round(10 - penalizacion)));
+
+    // Recomendación categórica (escala corta, más fiable que la nota holística):
+    // se basa en la severidad más alta presente, no en un umbral numérico.
+    let recomendacion: Recomendacion;
+    if (criticos > 0) {
+        recomendacion = "bloqueado";
+    } else if (mayores > 0) {
+        recomendacion = "cambios_mayores";
+    } else if (menores > 0) {
+        recomendacion = "cambios_menores";
+    } else {
+        recomendacion = "aprobar";
+    }
+
+    // Alineado con "mejora la salud del código" (Google): los problemas menores
+    // no bloquean el merge; solo lo hacen críticos y mayores.
+    const apto = criticos === 0 && mayores === 0;
+
+    return { puntuacion, apto, recomendacion };
+}
+
+// Nº de ejecuciones del análisis para el ensemble (voto/mediana).
+// Reduce la varianza entre sesiones. Configurable por entorno (AI_ENSEMBLE_RUNS).
+const DEFAULT_ENSEMBLE_RUNS = 3;
+
 // 2. Nuestro servicio principal
 export class GitHubAIService {
     private octokit: Octokit;
 
     // Aceptamos el token, pero si no se pasa, funciona para repos públicos (con límite de peticiones).
-    // aiOptions permite forzar proveedor/modelo; si se omite, se usa la configuración por entorno.
+    // aiOptions permite forzar proveedor/modelo/nº de ejecuciones; si se omite, se usa la config por entorno.
     constructor(
         private token?: string,
-        private aiOptions?: { provider?: AIProvider; model?: string },
+        private aiOptions?: {
+            provider?: AIProvider;
+            model?: string;
+            ensembleRuns?: number;
+        },
     ) {
         this.octokit = new Octokit({ auth: token });
     }
@@ -216,7 +335,40 @@ export class GitHubAIService {
         });
     }
 
-    // El método que une GitHub + IA
+    // Una única revisión: pide al modelo los problemas y deriva el análisis.
+    private async runReview(
+        model: LanguageModel,
+        diff: string,
+    ): Promise<PRAnalysis> {
+        const { object } = await generateObject({
+            model,
+            schema: ReviewModelSchema,
+            // temperature 0 = detección (casi) determinista
+            temperature: 0,
+            // Los estándares van como `system` (estable); el diff como `prompt` (variable)
+            system: SCORING_RUBRIC,
+            prompt: `Detecta y clasifica los problemas del siguiente diff siguiendo los estándares.\n\nDiff:\n${diff}`,
+        });
+
+        // La nota y la recomendación las calcula el sistema (determinista).
+        const { puntuacion, apto, recomendacion } = computeScore(object.problemas);
+
+        return {
+            resumen_ejecutivo: object.resumen_ejecutivo,
+            // Prefijamos cada bug con su severidad para que sea visible en la UI
+            posibles_bugs: object.problemas.map(
+                (p) => `[${p.severidad}] ${p.descripcion}`,
+            ),
+            apto_para_merge: apto,
+            puntuacion_codigo: puntuacion,
+            recomendacion,
+        };
+    }
+
+    // El método que une GitHub + IA.
+    // Ejecuta el análisis varias veces (ensemble) y se queda con el resultado
+    // de la MEDIANA por puntuación, lo que filtra ejecuciones atípicas y reduce
+    // la varianza entre sesiones (práctica recomendada en LLM-as-a-judge).
     async analyzePR(owner: string, repo: string, prNumber: number): Promise<PRAnalysis> {
         console.log(`[Core] Descargando diff de ${owner}/${repo}#${prNumber}...`);
         const diff = await this.getPRDiff(owner, repo, prNumber);
@@ -229,17 +381,42 @@ export class GitHubAIService {
         }
 
         const model = resolveModel(this.aiOptions?.provider, this.aiOptions?.model);
-        console.log(`[Core] Enviando a la IA (${diffLimitado.length} caracteres)...`);
 
-        const { object } = await generateObject({
-            model,
-            schema: PRAnalysisSchema,
-            prompt: `Eres un ingeniero de software Senior revisando un Pull Request.
-      Analiza el siguiente diff de código y devuelve el análisis estructurado.
-      Sé estricto buscando bugs. Diff:
-      ${diffLimitado}`,
-        });
+        // Nº de ejecuciones: opción explícita > entorno > por defecto. Mínimo 1.
+        const envRuns = Number(process.env.AI_ENSEMBLE_RUNS);
+        const configuredRuns =
+            this.aiOptions?.ensembleRuns ??
+            (Number.isFinite(envRuns) && envRuns > 0
+                ? envRuns
+                : DEFAULT_ENSEMBLE_RUNS);
+        const runs = Math.max(1, configuredRuns);
+        console.log(`[Core] Analizando con ${runs} ejecución(es) (${diffLimitado.length} caracteres)...`);
 
-        return object;
+        // Lanzamos las ejecuciones en paralelo; toleramos fallos parciales (p. ej.
+        // sobrecarga puntual del proveedor) mientras al menos una tenga éxito.
+        const settled = await Promise.allSettled(
+            Array.from({ length: runs }, () => this.runReview(model, diffLimitado)),
+        );
+
+        const exitosas = settled
+            .filter(
+                (r): r is PromiseFulfilledResult<PRAnalysis> =>
+                    r.status === "fulfilled",
+            )
+            .map((r) => r.value);
+
+        if (exitosas.length === 0) {
+            const motivo =
+                settled[0]?.status === "rejected"
+                    ? (settled[0] as PromiseRejectedResult).reason
+                    : "desconocido";
+            throw new Error(
+                `No se pudo completar el análisis: ${motivo instanceof Error ? motivo.message : motivo}`,
+            );
+        }
+
+        // Mediana por puntuación: ordenamos y tomamos el elemento central.
+        exitosas.sort((a, b) => a.puntuacion_codigo - b.puntuacion_codigo);
+        return exitosas[Math.floor(exitosas.length / 2)]!;
     }
 }
