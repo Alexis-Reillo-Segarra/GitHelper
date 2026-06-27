@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  // El paquete @repo/core expone su código vía "types": "./src/index.ts" (workspace),
+  // así que la CLI resuelve sus tipos directamente desde el código fuente sin necesidad
+  // de project references (que exigirían compilar el core a .d.ts antes).
+  "include": ["src"]
+}
