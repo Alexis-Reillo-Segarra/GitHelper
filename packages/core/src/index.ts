@@ -14,6 +14,35 @@ export const PRAnalysisSchema = z.object({
 
 export type PRAnalysis = z.infer<typeof PRAnalysisSchema>;
 
+// 1.c Tipos resumidos para la conexión con GitHub.
+// Solo exponemos los campos que la app necesita, no los objetos crudos de Octokit.
+
+// Datos básicos del usuario autenticado (para verificar el token y mostrar quién está logueado)
+export type GitHubUser = {
+    login: string;
+    name: string | null;
+    avatar_url: string;
+};
+
+// Resumen de un repositorio del usuario
+export type RepoSummary = {
+    owner: string;
+    name: string;
+    full_name: string;
+    private: boolean;
+    description: string | null;
+    updated_at: string | null;
+};
+
+// Resumen de un Pull Request abierto
+export type PullSummary = {
+    number: number;
+    title: string;
+    author: string | null;
+    created_at: string;
+    url: string;
+};
+
 // 1.b Selección del proveedor de IA.
 // Se elige con la variable de entorno AI_PROVIDER ("gemini" | "openai").
 // El modelo concreto se puede sobreescribir con AI_MODEL.
@@ -78,6 +107,65 @@ export class GitHubAIService {
 
         // El diff viene como string gigante
         return response.data as unknown as string;
+    }
+
+    // Comprueba que tenemos un token antes de llamar a endpoints que requieren un usuario autenticado.
+    private requireAuth(accion: string): void {
+        if (!this.token) {
+            throw new Error(`Se requiere autenticación de GitHub para ${accion}.`);
+        }
+    }
+
+    // Obtiene los datos del usuario autenticado (sirve para verificar el token y mostrar quién está logueado)
+    async getAuthenticatedUser(): Promise<GitHubUser> {
+        this.requireAuth("obtener tu usuario de GitHub");
+
+        const { data } = await this.octokit.users.getAuthenticated();
+
+        // Mapeamos solo los campos que necesitamos
+        return {
+            login: data.login,
+            name: data.name ?? null,
+            avatar_url: data.avatar_url,
+        };
+    }
+
+    // Lista los repositorios del usuario autenticado, ordenados por última actualización
+    async listUserRepos(): Promise<RepoSummary[]> {
+        this.requireAuth("listar tus repositorios");
+
+        const { data } = await this.octokit.repos.listForAuthenticatedUser({
+            per_page: 100,
+            sort: "updated",
+        });
+
+        // Mapeamos cada repo a su versión resumida
+        return data.map((repo) => ({
+            owner: repo.owner.login,
+            name: repo.name,
+            full_name: repo.full_name,
+            private: repo.private,
+            description: repo.description ?? null,
+            updated_at: repo.updated_at ?? null,
+        }));
+    }
+
+    // Lista los Pull Requests abiertos de un repositorio
+    async listOpenPullRequests(owner: string, repo: string): Promise<PullSummary[]> {
+        const { data } = await this.octokit.pulls.list({
+            owner,
+            repo,
+            state: "open",
+        });
+
+        // Mapeamos cada PR a su versión resumida
+        return data.map((pull) => ({
+            number: pull.number,
+            title: pull.title,
+            author: pull.user?.login ?? null,
+            created_at: pull.created_at,
+            url: pull.html_url,
+        }));
     }
 
     // El método que une GitHub + IA

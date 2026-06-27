@@ -1,26 +1,44 @@
 @import "tailwindcss";
 
+/*
+  Tema oscuro permanente al estilo Vercel.
+  No dependemos de `prefers-color-scheme`: la interfaz es oscura siempre.
+*/
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a; /* casi negro, fondo base */
+  --foreground: #ededed; /* texto gris muy claro */
+  --card: #111111; /* superficie de tarjetas, ligeramente elevada */
+  --card-hover: #161616; /* hover sutil sobre superficies */
+  --border: #2a2a2a; /* bordes sutiles */
+  --muted: #8b8b8b; /* texto secundario / placeholders */
+  --accent: #fafafa; /* acento claro (botones primarios estilo Vercel) */
+  --accent-foreground: #0a0a0a; /* texto sobre acento claro */
+  --ring: #3a3a3a; /* anillo de foco discreto */
+  --success: #4ade80; /* verde apto */
+  --danger: #f87171; /* rojo no apto / bugs */
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-hover: var(--card-hover);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  /* Conservamos las variables de fuente definidas en layout.tsx */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  /* Suaviza la tipografía sobre fondo oscuro */
+  -webkit-font-smoothing: antialiased;
 }
