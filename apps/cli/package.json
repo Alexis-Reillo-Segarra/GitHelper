@@ -36,8 +36,6 @@
     "cli-table3": "^0.6.5",
     "commander": "^15.0.0",
     "dotenv": "^17.4.2",
-    "figlet": "^1.8.0",
-    "gradient-string": "^2.0.2",
     "ink": "^7.1.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
@@ -47,8 +45,6 @@
   },
   "devDependencies": {
     "@repo/core": "workspace:*",
-    "@types/figlet": "^1.7.0",
-    "@types/gradient-string": "^1.1.6",
     "@types/node": "^20",
     "@types/react": "^19.0.0",
     "ink-testing-library": "^4.0.0",

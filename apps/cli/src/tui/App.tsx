@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import Spinner from "ink-spinner";
 import {
     GitHubAIService,
+    GitHubApiError,
     getProvider,
     type PendingPR,
     type PRAnalysis,
@@ -12,6 +13,7 @@ import { Setup } from "./Setup";
 import { colors } from "./theme";
 import { Mascot, MASCOT_ROWS } from "./mascot";
 import { HintBar, Logo, LOGO_WIDTH, Panel, StatusLine, useTerminalSize, Wordmark } from "./ui";
+import { relativeTime } from "../ui/time";
 
 type View = "setup" | "list" | "analysis";
 
@@ -24,24 +26,21 @@ function aiSetupMissing(): boolean {
     return !process.env[info.apiKeyEnv];
 }
 
-// ¿El fallo viene de un token de GitHub inválido/caducado?
-function isGithubAuthError(msg: string): boolean {
-    return /bad credentials|requires authentication|unauthorized|401/i.test(msg);
+// ¿El fallo es de credenciales de GitHub (token inválido/caducado)? Nos fiamos
+// del código de estado HTTP del cliente, no del texto: un 401 es siempre
+// credenciales. Otros estados de GitHub (403 rate-limit/permiso, 404, 5xx) NO
+// son un problema de credenciales y se muestran tal cual.
+function isGithubCredentialError(e: unknown): boolean {
+    return e instanceof GitHubApiError && e.status === 401;
 }
 
-// ¿El fallo viene de una API key del proveedor de IA inválida/caducada?
+// ¿El fallo viene de una API key del proveedor de IA inválida/caducada? Solo se
+// evalúa para errores que NO son de GitHub (los de GitHub son GitHubApiError),
+// así un 403 de GitHub nunca se confunde con un fallo de la clave de IA.
 function isAiAuthError(msg: string): boolean {
     return /api[\s_-]?key|x-api-key|invalid.*key|incorrect api key|authentication|unauthorized|401|403/i.test(
         msg,
     );
-}
-
-function timeAgo(iso: string): string {
-    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-    if (mins < 60) return `${mins}m`;
-    const h = Math.floor(mins / 60);
-    if (h < 24) return `${h}h`;
-    return `${Math.floor(h / 24)}d`;
 }
 
 const RECO_LABEL: Record<Recomendacion, string> = {
@@ -147,7 +146,7 @@ function PRListView({
                                 <Text color={colors.dim}>{`${pr.full_name} `}</Text>
                             )}
                             <Text color={colors.muted}>{`#${pr.number}`}</Text>
-                            <Text color={colors.faint}>{`  ·  ${timeAgo(pr.created_at)}`}</Text>
+                            <Text color={colors.faint}>{`  ·  ${relativeTime(pr.created_at)}`}</Text>
                         </Box>
                     </Box>
                 );
@@ -267,7 +266,7 @@ export function App({ token: initialToken }: { token?: string }) {
         } catch (e: any) {
             const msg = e?.message ?? String(e);
             // Token inválido/caducado → volvemos a pedirlo automáticamente.
-            if (isGithubAuthError(msg)) {
+            if (isGithubCredentialError(e)) {
                 setSetupNotice(
                     "Tu token de GitHub no es válido o ha caducado. Vuelve a introducirlo.",
                 );
@@ -320,9 +319,9 @@ export function App({ token: initialToken }: { token?: string }) {
             setAnalysis(result);
         } catch (e: any) {
             const msg = e?.message ?? String(e);
-            // Distinguimos qué credencial falló para re-solicitar solo esa:
-            // primero GitHub (la descarga del diff), luego el proveedor de IA.
-            if (isGithubAuthError(msg)) {
+            // Distinguimos qué credencial falló para re-solicitar solo esa.
+            // GitHub primero (la descarga del diff): un 401 → re-pedir token.
+            if (isGithubCredentialError(e)) {
                 setSetupNotice(
                     "Tu token de GitHub no es válido o ha caducado. Vuelve a introducirlo.",
                 );
@@ -330,7 +329,9 @@ export function App({ token: initialToken }: { token?: string }) {
                 setView("setup");
                 return;
             }
-            if (isAiAuthError(msg)) {
+            // Solo los errores que NO son de GitHub pueden ser de la clave de IA
+            // (un 403 de GitHub, p. ej. rate-limit, no debe pedir la clave de IA).
+            if (!(e instanceof GitHubApiError) && isAiAuthError(msg)) {
                 setSetupNotice(
                     "La API key de tu proveedor de IA no es válida o ha caducado. Vuelve a introducirla.",
                 );

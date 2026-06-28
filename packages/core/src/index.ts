@@ -1,10 +1,18 @@
-import { Octokit } from "@octokit/rest";
-import { generateObject, type LanguageModel } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { google } from "@ai-sdk/google";
-import { anthropic } from "@ai-sdk/anthropic";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { LanguageModel } from "ai";
 import { z } from "zod";
+import {
+    GitHubClient,
+    type GhUser,
+    type GhRepo,
+    type GhPull,
+    type GhPullDetail,
+    type GhSearchResult,
+} from "./github";
+
+// Re-exportamos el error del cliente HTTP para que las apps puedan enrutar por
+// código de estado (p. ej. la TUI distingue un 401 de GitHub de un fallo de la
+// clave de IA) en vez de depender del texto del mensaje.
+export { GitHubApiError } from "./github";
 
 // Recomendación final del análisis, alineada con la filosofía de Google
 // ("mejora la salud del código" en vez de "perfección"): una escala corta y
@@ -171,7 +179,14 @@ export function getProvider(id: string): ProviderInfo | undefined {
     );
 }
 
-export function resolveModel(provider?: AIProvider, model?: string): LanguageModel {
+// El SDK del proveedor se carga de forma perezosa (import dinámico): solo se
+// trae el paquete `@ai-sdk/*` que realmente se va a usar, en lugar de cargar
+// los cuatro al importar este módulo. Esto acelera el arranque de comandos que
+// no analizan (CLI `list`/`config`) y reduce el cold-start en serverless.
+export async function resolveModel(
+    provider?: AIProvider,
+    model?: string,
+): Promise<LanguageModel> {
     // Prioridad: argumento explícito > variable de entorno > "gemini" por defecto
     const selected = provider ?? process.env.AI_PROVIDER ?? "gemini";
     const info = getProvider(selected);
@@ -191,12 +206,18 @@ export function resolveModel(provider?: AIProvider, model?: string): LanguageMod
     const modelName = model ?? process.env.AI_MODEL ?? info.defaultModel;
 
     switch (info.id) {
-        case "gemini":
+        case "gemini": {
+            const { google } = await import("@ai-sdk/google");
             return google(modelName);
-        case "openai":
+        }
+        case "openai": {
+            const { openai } = await import("@ai-sdk/openai");
             return openai(modelName);
-        case "anthropic":
+        }
+        case "anthropic": {
+            const { anthropic } = await import("@ai-sdk/anthropic");
             return anthropic(modelName);
+        }
         case "kimi":
         case "minimax": {
             const baseURL =
@@ -206,6 +227,7 @@ export function resolveModel(provider?: AIProvider, model?: string): LanguageMod
                     `Falta la base URL para "${info.id}". Defínela con AI_BASE_URL.`,
                 );
             }
+            const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
             const client = createOpenAICompatible({ name: info.id, apiKey, baseURL });
             return client(modelName);
         }
@@ -316,7 +338,7 @@ const DEFAULT_ENSEMBLE_RUNS = 3;
 
 // 2. Nuestro servicio principal
 export class GitHubAIService {
-    private octokit: Octokit;
+    private gh: GitHubClient;
 
     // Aceptamos el token, pero si no se pasa, funciona para repos públicos (con límite de peticiones).
     // aiOptions permite forzar proveedor/modelo/nº de ejecuciones; si se omite, se usa la config por entorno.
@@ -328,20 +350,25 @@ export class GitHubAIService {
             ensembleRuns?: number;
         },
     ) {
-        this.octokit = new Octokit({ auth: token });
+        this.gh = new GitHubClient(token);
     }
 
-    // Obtener el diff (código añadido/borrado) de un PR
+    // Obtener el diff (código añadido/borrado) de un PR.
+    // El media type `vnd.github.diff` hace que GitHub devuelva el diff en texto.
     async getPRDiff(owner: string, repo: string, prNumber: number): Promise<string> {
-        const response = await this.octokit.pulls.get({
-            owner,
-            repo,
-            pull_number: prNumber,
-            mediaType: { format: "diff" }, // Mágia de Octokit para pedir el diff en texto plano
+        return this.gh.request<string>(`/repos/${owner}/${repo}/pulls/${prNumber}`, {
+            accept: "application/vnd.github.diff",
+            raw: true,
         });
+    }
 
-        // El diff viene como string gigante
-        return response.data as unknown as string;
+    // Obtiene el SHA de cabecera de un PR. Sirve como clave de caché: el diff
+    // (y por tanto el análisis) solo cambia cuando cambia este SHA.
+    async getPullHeadSha(owner: string, repo: string, prNumber: number): Promise<string> {
+        const pull = await this.gh.request<GhPullDetail>(
+            `/repos/${owner}/${repo}/pulls/${prNumber}`,
+        );
+        return pull.head.sha;
     }
 
     // Comprueba que tenemos un token antes de llamar a endpoints que requieren un usuario autenticado.
@@ -355,7 +382,7 @@ export class GitHubAIService {
     async getAuthenticatedUser(): Promise<GitHubUser> {
         this.requireAuth("obtener tu usuario de GitHub");
 
-        const { data } = await this.octokit.users.getAuthenticated();
+        const data = await this.gh.request<GhUser>("/user");
 
         // Mapeamos solo los campos que necesitamos
         return {
@@ -369,9 +396,8 @@ export class GitHubAIService {
     async listUserRepos(): Promise<RepoSummary[]> {
         this.requireAuth("listar tus repositorios");
 
-        const { data } = await this.octokit.repos.listForAuthenticatedUser({
-            per_page: 100,
-            sort: "updated",
+        const data = await this.gh.request<GhRepo[]>("/user/repos", {
+            query: { per_page: 100, sort: "updated" },
         });
 
         // Mapeamos cada repo a su versión resumida
@@ -387,10 +413,8 @@ export class GitHubAIService {
 
     // Lista los Pull Requests abiertos de un repositorio
     async listOpenPullRequests(owner: string, repo: string): Promise<PullSummary[]> {
-        const { data } = await this.octokit.pulls.list({
-            owner,
-            repo,
-            state: "open",
+        const data = await this.gh.request<GhPull[]>(`/repos/${owner}/${repo}/pulls`, {
+            query: { state: "open" },
         });
 
         // Mapeamos cada PR a su versión resumida
@@ -410,11 +434,16 @@ export class GitHubAIService {
         // getAuthenticatedUser ya valida que exista token y nos da el login
         const { login } = await this.getAuthenticatedUser();
 
-        const { data } = await this.octokit.search.issuesAndPullRequests({
-            q: `is:pr is:open archived:false user:${login}`,
-            sort: "updated",
-            order: "desc",
-            per_page: 50,
+        const data = await this.gh.request<GhSearchResult>("/search/issues", {
+            query: {
+                q: `is:pr is:open archived:false user:${login}`,
+                sort: "updated",
+                order: "desc",
+                per_page: 50,
+                // La búsqueda "avanzada" es la única soportada por GitHub desde
+                // 2025; mantiene la misma sintaxis de query que usamos.
+                advanced_search: "true",
+            },
         });
 
         return data.items.map((item) => {
@@ -442,6 +471,8 @@ export class GitHubAIService {
         model: LanguageModel,
         diff: string,
     ): Promise<PRAnalysis> {
+        // `ai` también se carga de forma perezosa: solo cuando hay que analizar.
+        const { generateObject } = await import("ai");
         const { object } = await generateObject({
             model,
             schema: ReviewModelSchema,
@@ -482,7 +513,7 @@ export class GitHubAIService {
             throw new Error("El PR no tiene cambios de código (diff vacío).");
         }
 
-        const model = resolveModel(this.aiOptions?.provider, this.aiOptions?.model);
+        const model = await resolveModel(this.aiOptions?.provider, this.aiOptions?.model);
 
         // Nº de ejecuciones: opción explícita > entorno > por defecto. Mínimo 1.
         const envRuns = Number(process.env.AI_ENSEMBLE_RUNS);

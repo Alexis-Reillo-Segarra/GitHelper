@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, Text, useStdout } from "ink";
-import figlet from "figlet";
 import { getProvider } from "@repo/core";
 import { colors } from "./theme";
+import { figletWord } from "../ui/figlet";
 
 // ── Tamaño de terminal reactivo ──────────────────────────────────────────────
 // Devuelve columnas/filas y se re-renderiza cuando el usuario cambia el tamaño
@@ -38,15 +38,8 @@ export const LOGO_WIDTH = 68;
 // ── Logotipo ───────────────────────────────────────────────────────────────
 // Wordmark a base de bloques (fuente "ANSI Shadow"), partido en dos palabras
 // con distinto color: "git" en gris neutro y "helper" en el acento de marca,
-// al estilo del logo bicolor de OpenCode.
-function figletWord(word: string): string[] {
-    return figlet
-        .textSync(word, { font: "ANSI Shadow" })
-        .replace(/\s+$/gm, "")
-        .split("\n")
-        .filter((l) => l.length > 0);
-}
-
+// al estilo del logo bicolor de OpenCode. `figletWord` se comparte con el
+// banner del --help (ver ../ui/figlet).
 function padTo(lines: string[], width: number): string[] {
     return lines.map((l) => l.padEnd(width, " "));
 }
