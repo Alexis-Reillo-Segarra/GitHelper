@@ -1,31 +1,41 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
-import { GitHubAIService, type PendingPR } from "@repo/core";
+import { GitHubAIService, type GitHubUser, type PendingPR } from "@repo/core";
+import { readConfig } from "@/lib/config";
 import { SessionBar } from "@/app/components/SessionBar";
 import { PRRow } from "@/app/components/PRRow";
 import { EmptyState } from "@/app/components/EmptyState";
 
 export default async function Home() {
-  const session = await auth();
+  const config = await readConfig();
 
-  // Red de seguridad (el proxy ya redirige a los no autenticados).
-  if (!session?.accessToken) {
+  // Red de seguridad (el proxy ya redirige a quien no esté configurado).
+  if (!config) {
     redirect("/login");
   }
 
+  const service = new GitHubAIService(config.githubToken);
+
+  let user: GitHubUser | null = null;
   let prs: PendingPR[] = [];
   let error: string | null = null;
   try {
-    const service = new GitHubAIService(session.accessToken);
-    prs = await service.listPendingPullRequests();
+    [user, prs] = await Promise.all([
+      service.getAuthenticatedUser(),
+      service.listPendingPullRequests(),
+    ]);
   } catch (e) {
     console.error(e);
-    error = "No se pudieron cargar tus Pull Requests. Inténtalo de nuevo.";
+    error = "No se pudieron cargar tus Pull Requests. Revisa tu token de GitHub.";
   }
 
   return (
     <>
-      <SessionBar name={session.user?.name} image={session.user?.image} />
+      <SessionBar
+        name={user?.name ?? user?.login}
+        image={user?.avatar_url}
+        provider={config.provider}
+        model={config.model}
+      />
 
       <main className="mx-auto w-full max-w-3xl px-6 pb-24 pt-12">
         <header>

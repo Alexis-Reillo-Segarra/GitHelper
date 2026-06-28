@@ -4,8 +4,8 @@ import { render, screen } from "@testing-library/react";
 import { checkA11y } from "@/test/a11y";
 import { SessionBar } from "./SessionBar";
 
-// El botón "Cerrar sesión" llama a signOut; lo stubbeamos.
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
+// "Cerrar sesión" usa el server action clearConfig; lo stubbeamos.
+vi.mock("@/app/actions", () => ({ clearConfig: vi.fn() }));
 // next/link necesita el contexto del App Router para navegar; en test lo
 // reemplazamos por un <a> simple.
 vi.mock("next/link", () => ({
@@ -36,9 +36,26 @@ describe("SessionBar", () => {
         expect(screen.getByText("B")).toBeInTheDocument();
     });
 
+    it("muestra el modelo del proveedor de IA activo", () => {
+        render(
+            <SessionBar
+                name="Alexis"
+                image={null}
+                provider="anthropic"
+                model="claude-haiku-4-5-20251001"
+            />,
+        );
+        expect(screen.getByText("claude-haiku-4-5-20251001")).toBeInTheDocument();
+    });
+
     it("no tiene violaciones de accesibilidad", async () => {
         const { container } = render(
-            <SessionBar name="Alexis" image="https://example.com/a.png" />,
+            <SessionBar
+                name="Alexis"
+                image="https://example.com/a.png"
+                provider="openai"
+                model="gpt-4o-mini"
+            />,
         );
         const results = await checkA11y(container);
         expect(results.violations).toEqual([]);

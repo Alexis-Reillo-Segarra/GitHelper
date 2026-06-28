@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAnalysisService } from "@/lib/service";
-import { auth } from "@/auth";
+import { readConfig } from "@/lib/config";
 
 // Validación de la petición con Zod
 const RequestSchema = z.object({
@@ -12,11 +12,11 @@ const RequestSchema = z.object({
 
 export async function POST(request: Request) {
     try {
-        // Autenticamos el route handler: necesitamos el token OAuth del usuario.
-        const session = await auth();
-        if (!session?.accessToken) {
+        // Necesitamos la configuración del usuario (token de GitHub + clave de IA).
+        const config = await readConfig();
+        if (!config) {
             return NextResponse.json(
-                { message: "No autenticado" },
+                { message: "No configurado" },
                 { status: 401 }
             );
         }
@@ -33,8 +33,8 @@ export async function POST(request: Request) {
         const { owner, repo, pr } = parsed.data;
 
         // ¡MAGIA DEL MONOREPO! Importamos el core directamente en la API de Next.js.
-        // Usamos el token del usuario autenticado para hablar con GitHub.
-        const service = createAnalysisService(session.accessToken);
+        // Usamos las credenciales del usuario (cookies) para GitHub y la IA.
+        const service = createAnalysisService(config);
         const analysis = await service.analyzePR(owner, repo, pr);
 
         return NextResponse.json(analysis);

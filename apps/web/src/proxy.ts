@@ -1,27 +1,28 @@
-import { auth } from "@/auth";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { COOKIE_AI_KEY, COOKIE_GITHUB_TOKEN } from "@/lib/cookies";
 
-// En Next.js 16 el antiguo `middleware` se renombró a `proxy` (misma
-// funcionalidad). Usamos el helper `auth` de NextAuth v5 como envoltorio:
-// `req.auth` contiene la sesión (o null si no hay usuario autenticado).
-export default auth((req) => {
-  // Si NO hay sesión, redirigimos al login.
-  // El `matcher` de abajo ya excluye /login, /api/auth y los assets estáticos,
-  // por lo que aquí solo llegan rutas que deben estar protegidas.
-  if (!req.auth) {
-    const loginUrl = new URL("/login", req.nextUrl.origin);
-    return Response.redirect(loginUrl);
+// En Next.js 16 el antiguo `middleware` se renombró a `proxy` (misma idea).
+// Aquí ya no usamos OAuth: el usuario configura sus credenciales en el asistente
+// y se guardan en cookies. Si faltan, redirigimos a `/login` (el asistente).
+export default function proxy(request: NextRequest) {
+  const configured =
+    request.cookies.has(COOKIE_GITHUB_TOKEN) && request.cookies.has(COOKIE_AI_KEY);
+
+  if (!configured) {
+    return NextResponse.redirect(new URL("/login", request.nextUrl.origin));
   }
-});
+}
 
 export const config = {
   matcher: [
     /*
      * Protege todas las rutas excepto:
-     * - login (página de inicio de sesión)
-     * - api/auth (endpoints OAuth de NextAuth)
+     * - login (asistente de configuración)
+     * - api (los route handlers se autoprotegen y devuelven JSON 401)
      * - _next/static, _next/image (assets internos de Next)
-     * - favicon.ico y otros assets estáticos comunes
+     * - favicon.ico y archivos .svg (assets estáticos)
      */
-    "/((?!login|api/auth|_next/static|_next/image|favicon.ico|.*\\.svg$).*)",
+    "/((?!login|api|_next/static|_next/image|favicon.ico|.*\\.svg$).*)",
   ],
 };
