@@ -1,17 +1,38 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import Spinner from "ink-spinner";
-import TextInput from "ink-text-input";
 import {
     GitHubAIService,
+    getProvider,
     type PendingPR,
     type PRAnalysis,
     type Recomendacion,
 } from "@repo/core";
-import { setConfig } from "../config";
+import { Setup } from "./Setup";
 import { colors } from "./theme";
 
-type View = "token" | "list" | "analysis";
+type View = "setup" | "list" | "analysis";
+
+// ¿Falta elegir proveedor de IA o su clave?
+function aiSetupMissing(): boolean {
+    const provider = process.env.AI_PROVIDER;
+    if (!provider) return true;
+    const info = getProvider(provider);
+    if (!info) return true;
+    return !process.env[info.apiKeyEnv];
+}
+
+// ¿El fallo viene de un token de GitHub inválido/caducado?
+function isGithubAuthError(msg: string): boolean {
+    return /bad credentials|requires authentication|unauthorized|401/i.test(msg);
+}
+
+// ¿El fallo viene de una API key del proveedor de IA inválida/caducada?
+function isAiAuthError(msg: string): boolean {
+    return /api[\s_-]?key|x-api-key|invalid.*key|incorrect api key|authentication|unauthorized|401|403/i.test(
+        msg,
+    );
+}
 
 function timeAgo(iso: string): string {
     const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -63,17 +84,13 @@ function StatusBar({ view }: { view: View }) {
                   ["↑↓", "navegar"],
                   ["⏎", "analizar"],
                   ["r", "refrescar"],
+                  ["s", "configurar"],
                   ["q", "salir"],
               ]
-            : view === "analysis"
-              ? [
-                    ["esc", "volver"],
-                    ["q", "salir"],
-                ]
-              : [
-                    ["⏎", "guardar"],
-                    ["ctrl+c", "salir"],
-                ];
+            : [
+                  ["esc", "volver"],
+                  ["q", "salir"],
+              ];
     return (
         <Box paddingX={1} gap={2}>
             {keys.map(([k, label]) => (
@@ -84,41 +101,6 @@ function StatusBar({ view }: { view: View }) {
                     <Text color={colors.dim}>{` ${label}`}</Text>
                 </Box>
             ))}
-        </Box>
-    );
-}
-
-// ── Onboarding: pide el GITHUB_TOKEN si no está configurado ─────────────────
-function TokenPrompt({ onSubmit }: { onSubmit: (value: string) => void }) {
-    const [value, setValue] = useState("");
-    return (
-        <Box flexDirection="column" paddingX={1} paddingY={1}>
-            <Text color={colors.fg} bold>
-                Configura tu token de GitHub
-            </Text>
-            <Box marginTop={1} flexDirection="column">
-                <Text color={colors.gray}>
-                    Lo necesito para listar tus Pull Requests pendientes.
-                </Text>
-                <Text color={colors.dim}>
-                    {"Créalo en https://github.com/settings/tokens (scope: repo) y pégalo aquí."}
-                </Text>
-            </Box>
-            <Box marginTop={1}>
-                <Text color={colors.purpleLight}>{"GITHUB_TOKEN ▸ "}</Text>
-                <TextInput
-                    value={value}
-                    onChange={setValue}
-                    onSubmit={onSubmit}
-                    mask="•"
-                    placeholder="ghp_…"
-                />
-            </Box>
-            <Box marginTop={1}>
-                <Text color={colors.dim}>
-                    {"Se guardará en ~/.config/git-helper/.env (solo en tu equipo)."}
-                </Text>
-            </Box>
         </Box>
     );
 }
@@ -147,8 +129,15 @@ function PRListView({
     }
     if (error) {
         return (
-            <Box paddingX={1} paddingY={1}>
+            <Box paddingX={1} paddingY={1} flexDirection="column">
                 <Text color={colors.bad}>{`✗ ${error}`}</Text>
+                <Text color={colors.dim}>
+                    {"Pulsa "}
+                    <Text color={colors.purpleLight} bold>
+                        s
+                    </Text>
+                    {" para volver a introducir tu proveedor de IA y token de GitHub."}
+                </Text>
             </Box>
         );
     }
@@ -256,13 +245,25 @@ export function App({ token: initialToken }: { token?: string }) {
     const { stdout } = useStdout();
     const rows = stdout?.rows ?? 24;
 
-    const [token, setToken] = useState<string | undefined>(initialToken);
+    // Qué falta configurar (al arrancar y también si el usuario pide reconfigurar
+    // tras unas credenciales inválidas). El wizard lee estos flags.
+    const [needs, setNeeds] = useState(() => ({
+        provider: aiSetupMissing(),
+        github: !(initialToken ?? process.env.GITHUB_TOKEN),
+    }));
+    const setupComplete = !needs.provider && !needs.github;
+
+    const [token, setToken] = useState<string | undefined>(
+        initialToken ?? process.env.GITHUB_TOKEN,
+    );
     const [prs, setPrs] = useState<PendingPR[]>([]);
-    const [loading, setLoading] = useState(Boolean(initialToken));
+    const [loading, setLoading] = useState(setupComplete);
     const [listError, setListError] = useState<string | null>(null);
     const [selected, setSelected] = useState(0);
 
-    const [view, setView] = useState<View>(initialToken ? "list" : "token");
+    const [view, setView] = useState<View>(setupComplete ? "list" : "setup");
+    // Motivo por el que se muestra el asistente (p. ej. credencial caducada).
+    const [setupNotice, setSetupNotice] = useState<string | null>(null);
     const [refLabel, setRefLabel] = useState("");
     const [analysis, setAnalysis] = useState<PRAnalysis | null>(null);
     const [analyzing, setAnalyzing] = useState(false);
@@ -276,25 +277,43 @@ export function App({ token: initialToken }: { token?: string }) {
             setPrs(data);
             setSelected(0);
         } catch (e: any) {
-            setListError(e?.message ?? String(e));
+            const msg = e?.message ?? String(e);
+            // Token inválido/caducado → volvemos a pedirlo automáticamente.
+            if (isGithubAuthError(msg)) {
+                setSetupNotice(
+                    "Tu token de GitHub no es válido o ha caducado. Vuelve a introducirlo.",
+                );
+                setNeeds({ provider: false, github: true });
+                setView("setup");
+                return;
+            }
+            setListError(msg);
         } finally {
             setLoading(false);
         }
     }
 
     useEffect(() => {
-        if (initialToken) void loadList(initialToken);
+        if (setupComplete && token) void loadList(token);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    function handleToken(value: string) {
-        const t = value.trim();
-        if (!t) return;
-        setConfig("GITHUB_TOKEN", t);
-        process.env.GITHUB_TOKEN = t;
+    // El wizard ya guardó todo en config + process.env; aquí recogemos el token.
+    function onSetupDone() {
+        const t = process.env.GITHUB_TOKEN;
         setToken(t);
+        setSetupNotice(null);
         setView("list");
-        void loadList(t);
+        if (t) void loadList(t);
+    }
+
+    // Relanza el asistente para reintroducir proveedor de IA + token de GitHub
+    // (reconfiguración manual con la tecla 's').
+    function startSetup() {
+        setListError(null);
+        setSetupNotice(null);
+        setNeeds({ provider: true, github: true });
+        setView("setup");
     }
 
     async function analyze(pr: PendingPR) {
@@ -312,7 +331,26 @@ export function App({ token: initialToken }: { token?: string }) {
             );
             setAnalysis(result);
         } catch (e: any) {
-            setAnalyzeError(e?.message ?? String(e));
+            const msg = e?.message ?? String(e);
+            // Distinguimos qué credencial falló para re-solicitar solo esa:
+            // primero GitHub (la descarga del diff), luego el proveedor de IA.
+            if (isGithubAuthError(msg)) {
+                setSetupNotice(
+                    "Tu token de GitHub no es válido o ha caducado. Vuelve a introducirlo.",
+                );
+                setNeeds({ provider: false, github: true });
+                setView("setup");
+                return;
+            }
+            if (isAiAuthError(msg)) {
+                setSetupNotice(
+                    "La API key de tu proveedor de IA no es válida o ha caducado. Vuelve a introducirla.",
+                );
+                setNeeds({ provider: true, github: false });
+                setView("setup");
+                return;
+            }
+            setAnalyzeError(msg);
         } finally {
             setAnalyzing(false);
         }
@@ -329,20 +367,26 @@ export function App({ token: initialToken }: { token?: string }) {
                 if (key.downArrow) setSelected((s) => Math.min(prs.length - 1, s + 1));
                 if (key.return && prs[selected]) void analyze(prs[selected]);
                 if (input === "r" && token) void loadList(token);
+                if (input === "s") startSetup();
             } else if (view === "analysis") {
                 if (key.escape) setView("list");
             }
         },
-        // En la vista de token, el TextInput gestiona el teclado (no capturamos 'q').
-        { isActive: view !== "token" },
+        // Durante el setup, los componentes del wizard gestionan el teclado.
+        { isActive: view === "list" || view === "analysis" },
     );
 
     return (
         <Box flexDirection="column" height={rows}>
             <Header />
             <Box flexGrow={1} flexDirection="column">
-                {view === "token" ? (
-                    <TokenPrompt onSubmit={handleToken} />
+                {view === "setup" ? (
+                    <Setup
+                        needProvider={needs.provider}
+                        needGithub={needs.github}
+                        notice={setupNotice ?? undefined}
+                        onDone={onSetupDone}
+                    />
                 ) : view === "list" ? (
                     <PRListView prs={prs} selected={selected} loading={loading} error={listError} />
                 ) : (
@@ -354,7 +398,7 @@ export function App({ token: initialToken }: { token?: string }) {
                     />
                 )}
             </Box>
-            <StatusBar view={view} />
+            {view === "setup" ? null : <StatusBar view={view} />}
         </Box>
     );
 }

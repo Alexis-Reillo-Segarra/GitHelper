@@ -2,6 +2,8 @@ import { Octokit } from "@octokit/rest";
 import { generateObject, type LanguageModel } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { google } from "@ai-sdk/google";
+import { anthropic } from "@ai-sdk/anthropic";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { z } from "zod";
 
 // Recomendación final del análisis, alineada con la filosofía de Google
@@ -71,42 +73,142 @@ export type PendingPR = {
 };
 
 // 1.b Selección del proveedor de IA.
-// Se elige con la variable de entorno AI_PROVIDER ("gemini" | "openai").
+// Se elige con la variable de entorno AI_PROVIDER y la API key correspondiente.
 // El modelo concreto se puede sobreescribir con AI_MODEL.
-export type AIProvider = "gemini" | "openai";
+export type AIProvider = "gemini" | "openai" | "anthropic" | "kimi" | "minimax";
 
-const DEFAULT_MODELS: Record<AIProvider, string> = {
-    gemini: "gemini-2.5-flash", // Rápido y con free tier en Google AI Studio
-    openai: "gpt-4o-mini",      // Rápido y barato
+// Metadatos de cada proveedor: alimentan el selector de la CLI y la validación.
+// `apiKeyEnv` es la variable de entorno donde vive su clave; `apiKeyUrl` indica
+// al usuario dónde conseguirla.
+// Un modelo concreto que ofrece un proveedor: `id` es lo que se manda a la API
+// (y se guarda en AI_MODEL); `label` es una descripción legible para la CLI.
+export type ModelInfo = {
+    id: string;
+    label: string;
 };
+
+export type ProviderInfo = {
+    id: AIProvider;
+    label: string;
+    icon: string;
+    apiKeyEnv: string;
+    defaultModel: string;
+    apiKeyUrl: string;
+    // Modelos sugeridos para el selector. El primero suele ser el `defaultModel`.
+    // No es exhaustivo: cualquier modelo del proveedor sirve vía AI_MODEL.
+    models: ModelInfo[];
+};
+
+export const AI_PROVIDERS: ProviderInfo[] = [
+    {
+        id: "gemini",
+        label: "Gemini · Google",
+        icon: "✦",
+        apiKeyEnv: "GOOGLE_GENERATIVE_AI_API_KEY",
+        defaultModel: "gemini-2.5-flash",
+        apiKeyUrl: "https://aistudio.google.com/apikey",
+        models: [
+            { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash · rápido y barato" },
+            { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro · más capaz" },
+        ],
+    },
+    {
+        id: "openai",
+        label: "GPT · OpenAI",
+        icon: "◉",
+        apiKeyEnv: "OPENAI_API_KEY",
+        defaultModel: "gpt-4o-mini",
+        apiKeyUrl: "https://platform.openai.com/api-keys",
+        models: [
+            { id: "gpt-4o-mini", label: "GPT-4o mini · rápido y barato" },
+            { id: "gpt-4o", label: "GPT-4o · más capaz" },
+        ],
+    },
+    {
+        id: "anthropic",
+        label: "Claude · Anthropic",
+        icon: "✶",
+        apiKeyEnv: "ANTHROPIC_API_KEY",
+        defaultModel: "claude-haiku-4-5-20251001",
+        apiKeyUrl: "https://console.anthropic.com/settings/keys",
+        models: [
+            { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 · rápido y barato" },
+            { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 · equilibrado" },
+            { id: "claude-opus-4-8", label: "Claude Opus 4.8 · máxima calidad" },
+        ],
+    },
+    {
+        id: "kimi",
+        label: "Kimi · Moonshot",
+        icon: "☾",
+        apiKeyEnv: "MOONSHOT_API_KEY",
+        defaultModel: "kimi-k2-0711-preview",
+        apiKeyUrl: "https://platform.moonshot.ai/console/api-keys",
+        models: [{ id: "kimi-k2-0711-preview", label: "Kimi K2" }],
+    },
+    {
+        id: "minimax",
+        label: "MiniMax",
+        icon: "⬣",
+        apiKeyEnv: "MINIMAX_API_KEY",
+        defaultModel: "MiniMax-M1",
+        apiKeyUrl: "https://www.minimax.io/platform",
+        models: [{ id: "MiniMax-M1", label: "MiniMax M1" }],
+    },
+];
+
+// Base URL de los proveedores compatibles con la API de OpenAI (configurable
+// por entorno por si cambian o el usuario usa un proxy).
+const OPENAI_COMPATIBLE_BASE_URL: Partial<Record<AIProvider, string>> = {
+    kimi: "https://api.moonshot.ai/v1",
+    minimax: "https://api.minimax.io/v1",
+};
+
+export function getProvider(id: string): ProviderInfo | undefined {
+    const norm = id.toLowerCase();
+    return AI_PROVIDERS.find(
+        (p) => p.id === norm || (norm === "google" && p.id === "gemini") || (norm === "gpt" && p.id === "openai") || (norm === "claude" && p.id === "anthropic"),
+    );
+}
 
 export function resolveModel(provider?: AIProvider, model?: string): LanguageModel {
     // Prioridad: argumento explícito > variable de entorno > "gemini" por defecto
-    const selected = (provider ?? process.env.AI_PROVIDER ?? "gemini").toLowerCase();
-    const modelName = model ?? process.env.AI_MODEL;
+    const selected = provider ?? process.env.AI_PROVIDER ?? "gemini";
+    const info = getProvider(selected);
+    if (!info) {
+        throw new Error(
+            `AI_PROVIDER desconocido: "${selected}". Válidos: ${AI_PROVIDERS.map((p) => p.id).join(", ")}.`,
+        );
+    }
 
-    switch (selected) {
+    const apiKey = process.env[info.apiKeyEnv];
+    if (!apiKey) {
+        throw new Error(
+            `Falta la variable ${info.apiKeyEnv}, requerida para el proveedor "${info.id}". Consíguela en ${info.apiKeyUrl}`,
+        );
+    }
+
+    const modelName = model ?? process.env.AI_MODEL ?? info.defaultModel;
+
+    switch (info.id) {
         case "gemini":
-        case "google":
-            // Validamos que exista la API key de Google antes de crear el modelo
-            if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-                throw new Error(
-                    'Falta la variable de entorno GOOGLE_GENERATIVE_AI_API_KEY requerida para el proveedor "gemini".',
-                );
-            }
-            return google(modelName ?? DEFAULT_MODELS.gemini);
+            return google(modelName);
         case "openai":
-            // Validamos que exista la API key de OpenAI antes de crear el modelo
-            if (!process.env.OPENAI_API_KEY) {
+            return openai(modelName);
+        case "anthropic":
+            return anthropic(modelName);
+        case "kimi":
+        case "minimax": {
+            const baseURL =
+                process.env.AI_BASE_URL ?? OPENAI_COMPATIBLE_BASE_URL[info.id];
+            if (!baseURL) {
                 throw new Error(
-                    'Falta la variable de entorno OPENAI_API_KEY requerida para el proveedor "openai".',
+                    `Falta la base URL para "${info.id}". Defínela con AI_BASE_URL.`,
                 );
             }
-            return openai(modelName ?? DEFAULT_MODELS.openai);
-        default:
-            throw new Error(
-                `AI_PROVIDER desconocido: "${selected}". Valores válidos: "gemini" u "openai".`,
-            );
+            const client = createOpenAICompatible({ name: info.id, apiKey, baseURL });
+            return client(modelName);
+        }
     }
 }
 
