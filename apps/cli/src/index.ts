@@ -172,9 +172,11 @@ config
 
 config.action(() => config.help());
 
-// Sin subcomando: banner + ayuda (a lo Claude Code).
-program.action(() => {
-    program.help();
+// Sin subcomando: abre la TUI interactiva a pantalla completa (estilo Claude Code).
+// Ink se carga de forma perezosa para no penalizar el arranque de los subcomandos.
+program.action(async () => {
+    const { runTui } = await import("./tui/run");
+    await runTui(process.env.GITHUB_TOKEN);
 });
 
 program.parse();
