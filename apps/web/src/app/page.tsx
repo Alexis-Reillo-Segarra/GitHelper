@@ -1,146 +1,124 @@
-"use client";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+import { GitHubAIService, type PendingPR } from "@repo/core";
+import { SessionBar } from "@/app/components/SessionBar";
 
-import { useState } from "react";
-import { PRAnalysis, PRAnalysisSchema } from "@repo/core";
-
-// Definimos cómo será la llamada al servidor
-async function fetchAnalysis(
-  owner: string,
-  repo: string,
-  pr: number,
-): Promise<PRAnalysis> {
-  const response = await fetch("/api/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ owner, repo, pr }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || "Error al analizar el PR");
-  }
-
-  return response.json();
+// Formatea una fecha ISO como tiempo relativo en español (aprox).
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "hace un momento";
+  if (mins < 60) return `hace ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `hace ${days} d`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `hace ${months} mes${months > 1 ? "es" : ""}`;
+  return `hace ${Math.floor(months / 12)} a`;
 }
 
-export default function Home() {
-  const [owner, setOwner] = useState("vercel");
-  const [repo, setRepo] = useState("next.js");
-  const [prNumber, setPrNumber] = useState("65000");
-  const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<PRAnalysis | null>(null);
-  const [error, setError] = useState<string | null>(null);
+// Fila de un PR pendiente: enlaza a su pantalla de análisis.
+// Componente a nivel de módulo (regla `rerender-no-inline-components`).
+function PRRow({ pr }: { pr: PendingPR }) {
+  return (
+    <Link
+      href={`/pr/${pr.owner}/${pr.repo}/${pr.number}`}
+      className="group flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-5 py-4 transition-colors hover:bg-card-hover"
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium text-foreground">
+            {pr.title}
+          </span>
+          {pr.draft ? (
+            <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              Borrador
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-1 truncate text-xs text-muted">
+          {pr.full_name} <span className="text-border">·</span> #{pr.number}
+          {pr.author ? (
+            <>
+              {" "}
+              <span className="text-border">·</span> {pr.author}
+            </>
+          ) : null}{" "}
+          <span className="text-border">·</span> {timeAgo(pr.created_at)}
+        </p>
+      </div>
+      <span className="shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-foreground">
+        →
+      </span>
+    </Link>
+  );
+}
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    setResult(null);
+// Estado vacío cuando no hay PRs pendientes.
+function EmptyState() {
+  return (
+    <div className="mt-10 flex flex-col items-center rounded-xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
+      <p className="text-sm font-medium text-foreground">
+        No tienes Pull Requests pendientes
+      </p>
+      <p className="mt-1.5 text-sm text-muted">
+        Cuando lleguen PRs abiertos a tus repositorios, aparecerán aquí.
+      </p>
+    </div>
+  );
+}
 
-    const pr = parseInt(prNumber, 10);
-    if (Number.isNaN(pr)) {
-      setError("Introduce un número de PR válido");
-      setIsLoading(false);
-      return;
-    }
+export default async function Home() {
+  const session = await auth();
 
-    try {
-      const data = await fetchAnalysis(owner, repo, pr);
-      setResult(data);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Red de seguridad (el proxy ya redirige a los no autenticados).
+  if (!session?.accessToken) {
+    redirect("/login");
+  }
+
+  let prs: PendingPR[] = [];
+  let error: string | null = null;
+  try {
+    const service = new GitHubAIService(session.accessToken);
+    prs = await service.listPendingPullRequests();
+  } catch (e) {
+    console.error(e);
+    error = "No se pudieron cargar tus Pull Requests. Inténtalo de nuevo.";
+  }
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center p-8">
-      <h1 className="text-4xl font-bold mb-2 mt-10">GitHub AI Helper</h1>
-      <p className="text-gray-400 mb-10">Analiza Pull Requests al instante</p>
+    <>
+      <SessionBar name={session.user?.name} image={session.user?.image} />
 
-      {/* Formulario */}
-      <form
-        onSubmit={handleSubmit}
-        className="flex flex-wrap gap-4 mb-10 bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-800"
-      >
-        <input
-          type="text"
-          placeholder="Owner (ej: facebook)"
-          value={owner}
-          onChange={(e) => setOwner(e.target.value)}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-blue-500 focus:border-blue-500"
-          required
-        />
-        <input
-          type="text"
-          placeholder="Repo (ej: react)"
-          value={repo}
-          onChange={(e) => setRepo(e.target.value)}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-blue-500 focus:border-blue-500"
-          required
-        />
-        <input
-          type="number"
-          placeholder="PR #"
-          value={prNumber}
-          onChange={(e) => setPrNumber(e.target.value)}
-          className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white w-24 focus:ring-blue-500 focus:border-blue-500"
-          required
-        />
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="bg-blue-600 hover:bg-blue-700 font-semibold px-6 py-2 rounded-lg transition-colors disabled:opacity-50"
-        >
-          {isLoading ? "Analizando..." : "Analizar PR"}
-        </button>
-      </form>
-
-      {/* Errores */}
-      {error && (
-        <p className="text-red-400 bg-red-950 p-4 rounded-lg mb-6">{error}</p>
-      )}
-
-      {/* Resultados */}
-      {result && (
-        <div className="w-full max-w-2xl bg-gray-900 border border-gray-800 rounded-xl p-6 shadow-lg space-y-4 animate-in fade-in">
-          <div className="flex justify-between items-center border-b border-gray-800 pb-4">
-            <h2 className="text-xl font-bold">Resultado del Análisis</h2>
-            <span
-              className={`text-2xl font-bold ${result.puntuacion_codigo >= 7 ? "text-green-400" : "text-red-400"}`}
-            >
-              {result.puntuacion_codigo}/10
-            </span>
-          </div>
-
-          <p className="text-gray-300">
-            <span className="font-semibold text-white">Resumen:</span>{" "}
-            {result.resumen_ejecutivo}
+      <main className="mx-auto w-full max-w-3xl px-6 pb-24 pt-12">
+        <header>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Tus Pull Requests pendientes
+          </h1>
+          <p className="mt-2 text-sm text-muted">
+            PRs abiertos en tus repositorios. Haz clic en uno para ver su
+            análisis con IA.
           </p>
+        </header>
 
-          <div
-            className={`inline-block px-3 py-1 rounded-full text-sm font-bold ${result.apto_para_merge ? "bg-green-900 text-green-300" : "bg-red-900 text-red-300"}`}
-          >
-            {result.apto_para_merge
-              ? "✅ Apto para Merge"
-              : "❌ NO Apto para Merge"}
-          </div>
-
-          {result.posibles_bugs.length > 0 && (
-            <div className="pt-4 border-t border-gray-800">
-              <h3 className="font-semibold text-red-400 mb-2">
-                🐛 Posibles Bugs:
-              </h3>
-              <ul className="list-disc list-inside space-y-1 text-gray-300">
-                {result.posibles_bugs.map((bug, i) => (
-                  <li key={i}>{bug}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </main>
+        {error ? (
+          <p className="mt-8 rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+            {error}
+          </p>
+        ) : prs.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <ul className="mt-8 space-y-2.5">
+            {prs.map((pr) => (
+              <li key={`${pr.full_name}#${pr.number}`}>
+                <PRRow pr={pr} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </main>
+    </>
   );
 }
