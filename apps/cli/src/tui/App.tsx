@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import Spinner from "ink-spinner";
+import TextInput from "ink-text-input";
 import {
     GitHubAIService,
     type PendingPR,
     type PRAnalysis,
     type Recomendacion,
 } from "@repo/core";
+import { setConfig } from "../config";
 import { colors } from "./theme";
 
-type View = "list" | "analysis";
+type View = "token" | "list" | "analysis";
 
 function timeAgo(iso: string): string {
     const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -55,7 +57,7 @@ function Header() {
 
 // ── Barra de estado inferior con atajos ────────────────────────────────────
 function StatusBar({ view }: { view: View }) {
-    const keys =
+    const keys: [string, string][] =
         view === "list"
             ? [
                   ["↑↓", "navegar"],
@@ -63,10 +65,15 @@ function StatusBar({ view }: { view: View }) {
                   ["r", "refrescar"],
                   ["q", "salir"],
               ]
-            : [
-                  ["esc", "volver"],
-                  ["q", "salir"],
-              ];
+            : view === "analysis"
+              ? [
+                    ["esc", "volver"],
+                    ["q", "salir"],
+                ]
+              : [
+                    ["⏎", "guardar"],
+                    ["ctrl+c", "salir"],
+                ];
     return (
         <Box paddingX={1} gap={2}>
             {keys.map(([k, label]) => (
@@ -77,6 +84,41 @@ function StatusBar({ view }: { view: View }) {
                     <Text color={colors.dim}>{` ${label}`}</Text>
                 </Box>
             ))}
+        </Box>
+    );
+}
+
+// ── Onboarding: pide el GITHUB_TOKEN si no está configurado ─────────────────
+function TokenPrompt({ onSubmit }: { onSubmit: (value: string) => void }) {
+    const [value, setValue] = useState("");
+    return (
+        <Box flexDirection="column" paddingX={1} paddingY={1}>
+            <Text color={colors.fg} bold>
+                Configura tu token de GitHub
+            </Text>
+            <Box marginTop={1} flexDirection="column">
+                <Text color={colors.gray}>
+                    Lo necesito para listar tus Pull Requests pendientes.
+                </Text>
+                <Text color={colors.dim}>
+                    {"Créalo en https://github.com/settings/tokens (scope: repo) y pégalo aquí."}
+                </Text>
+            </Box>
+            <Box marginTop={1}>
+                <Text color={colors.purpleLight}>{"GITHUB_TOKEN ▸ "}</Text>
+                <TextInput
+                    value={value}
+                    onChange={setValue}
+                    onSubmit={onSubmit}
+                    mask="•"
+                    placeholder="ghp_…"
+                />
+            </Box>
+            <Box marginTop={1}>
+                <Text color={colors.dim}>
+                    {"Se guardará en ~/.config/git-helper/.env (solo en tu equipo)."}
+                </Text>
+            </Box>
         </Box>
     );
 }
@@ -127,7 +169,11 @@ function PRListView({
                             {active ? "▶ " : "  "}
                         </Text>
                         <Box width={50}>
-                            <Text color={active ? colors.fg : colors.gray} bold={active} wrap="truncate-end">
+                            <Text
+                                color={active ? colors.fg : colors.gray}
+                                bold={active}
+                                wrap="truncate-end"
+                            >
                                 {pr.title}
                             </Text>
                         </Box>
@@ -205,34 +251,28 @@ function AnalysisView({
     );
 }
 
-export function App({ token }: { token?: string }) {
+export function App({ token: initialToken }: { token?: string }) {
     const { exit } = useApp();
     const { stdout } = useStdout();
     const rows = stdout?.rows ?? 24;
 
+    const [token, setToken] = useState<string | undefined>(initialToken);
     const [prs, setPrs] = useState<PendingPR[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(Boolean(initialToken));
     const [listError, setListError] = useState<string | null>(null);
     const [selected, setSelected] = useState(0);
 
-    const [view, setView] = useState<View>("list");
+    const [view, setView] = useState<View>(initialToken ? "list" : "token");
     const [refLabel, setRefLabel] = useState("");
     const [analysis, setAnalysis] = useState<PRAnalysis | null>(null);
     const [analyzing, setAnalyzing] = useState(false);
     const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
-    const service = new GitHubAIService(token);
-
-    async function loadList() {
+    async function loadList(tok: string) {
         setLoading(true);
         setListError(null);
-        if (!token) {
-            setLoading(false);
-            setListError("Necesitas un GITHUB_TOKEN. Guárdalo con: git-helper config set GITHUB_TOKEN ghp_…");
-            return;
-        }
         try {
-            const data = await service.listPendingPullRequests();
+            const data = await new GitHubAIService(tok).listPendingPullRequests();
             setPrs(data);
             setSelected(0);
         } catch (e: any) {
@@ -243,19 +283,33 @@ export function App({ token }: { token?: string }) {
     }
 
     useEffect(() => {
-        void loadList();
+        if (initialToken) void loadList(initialToken);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    function handleToken(value: string) {
+        const t = value.trim();
+        if (!t) return;
+        setConfig("GITHUB_TOKEN", t);
+        process.env.GITHUB_TOKEN = t;
+        setToken(t);
+        setView("list");
+        void loadList(t);
+    }
+
     async function analyze(pr: PendingPR) {
-        const ref = `${pr.full_name} #${pr.number}`;
-        setRefLabel(ref);
+        if (!token) return;
+        setRefLabel(`${pr.full_name} #${pr.number}`);
         setView("analysis");
         setAnalysis(null);
         setAnalyzeError(null);
         setAnalyzing(true);
         try {
-            const result = await service.analyzePR(pr.owner, pr.repo, pr.number);
+            const result = await new GitHubAIService(token).analyzePR(
+                pr.owner,
+                pr.repo,
+                pr.number,
+            );
             setAnalysis(result);
         } catch (e: any) {
             setAnalyzeError(e?.message ?? String(e));
@@ -264,26 +318,32 @@ export function App({ token }: { token?: string }) {
         }
     }
 
-    useInput((input, key) => {
-        if (input === "q") {
-            exit();
-            return;
-        }
-        if (view === "list") {
-            if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
-            if (key.downArrow) setSelected((s) => Math.min(prs.length - 1, s + 1));
-            if (key.return && prs[selected]) void analyze(prs[selected]);
-            if (input === "r") void loadList();
-        } else if (view === "analysis") {
-            if (key.escape) setView("list");
-        }
-    });
+    useInput(
+        (input, key) => {
+            if (input === "q") {
+                exit();
+                return;
+            }
+            if (view === "list") {
+                if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
+                if (key.downArrow) setSelected((s) => Math.min(prs.length - 1, s + 1));
+                if (key.return && prs[selected]) void analyze(prs[selected]);
+                if (input === "r" && token) void loadList(token);
+            } else if (view === "analysis") {
+                if (key.escape) setView("list");
+            }
+        },
+        // En la vista de token, el TextInput gestiona el teclado (no capturamos 'q').
+        { isActive: view !== "token" },
+    );
 
     return (
         <Box flexDirection="column" height={rows}>
             <Header />
             <Box flexGrow={1} flexDirection="column">
-                {view === "list" ? (
+                {view === "token" ? (
+                    <TokenPrompt onSubmit={handleToken} />
+                ) : view === "list" ? (
                     <PRListView prs={prs} selected={selected} loading={loading} error={listError} />
                 ) : (
                     <AnalysisView

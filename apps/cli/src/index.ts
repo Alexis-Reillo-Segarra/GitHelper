@@ -26,7 +26,7 @@ const program = new Command();
 program
     .name("git-helper")
     .description("Code review de Pull Requests de GitHub con IA, desde la terminal")
-    .version("0.1.0", "-V, --version", "muestra la versión")
+    .version("0.2.0", "-V, --version", "muestra la versión")
     .addHelpText("beforeAll", renderBanner());
 
 // ── review (alias: analyze) ────────────────────────────────────────────────
