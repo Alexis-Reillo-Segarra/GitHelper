@@ -4,13 +4,13 @@ import { c, purpleGradient } from "./theme";
 // Mascota: pulpo con casco de obra. Solo chars ancho-1 para que el cálculo
 // de ancho de la caja sea exacto (sin glifos de doble ancho que descuadren).
 const OCTOPUS: string[] = [
-    "    _____    ",
-    "   /#####\\   ",
-    "  |_______|  ",  // ala del casco
-    "  | o   o |  ",
-    "   \\  v  /   ",
-    "   /|/^\\|\\   ",
-    "   ' ' ' '   ",
+    "    _____     ",
+    "   /=====\\    ", // cúpula del casco
+    "  (_________)  ", // ala del casco de obra
+    "   | o   o |   ", // cara
+    "    \\  ~  /    ", // boca
+    "   _/|||||\\_   ", // tentáculos
+    "   ~ ~ ~ ~ ~   ", // puntas
 ];
 
 const TAGLINE = "Code review con IA, en tu terminal";
