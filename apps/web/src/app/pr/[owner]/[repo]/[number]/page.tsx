@@ -1,8 +1,10 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { auth } from "@/auth";
-import { GitHubAIService, type PRAnalysis } from "@repo/core";
+import type { PRAnalysis } from "@repo/core";
+import { createAnalysisService } from "@/lib/service";
 import { SessionBar } from "@/app/components/SessionBar";
 import { ResultCard } from "@/app/components/ResultCard";
 
@@ -50,8 +52,19 @@ async function Analysis({
   // error de render no lo capturaría este catch (regla react-hooks/error-boundaries).
   let result: PRAnalysis;
   try {
-    const service = new GitHubAIService(token);
-    result = await service.analyzePR(owner, repo, number);
+    const service = createAnalysisService(token);
+
+    // El SHA de cabecera identifica el contenido del PR: mientras no cambie, el
+    // análisis cacheado sigue siendo válido y nos ahorramos las llamadas a la
+    // IA (lo caro). La clave NO incluye el token: el resultado es el mismo para
+    // cualquier usuario con acceso, así que la caché se comparte por PR+SHA.
+    const sha = await service.getPullHeadSha(owner, repo, number);
+    const getCachedAnalysis = unstable_cache(
+      () => service.analyzePR(owner, repo, number),
+      ["pr-analysis", owner, repo, String(number), sha],
+      { revalidate: 86400, tags: [`pr-analysis:${owner}/${repo}#${number}`] },
+    );
+    result = await getCachedAnalysis();
   } catch (e) {
     const message =
       e instanceof Error ? e.message : "Error inesperado al analizar el PR.";

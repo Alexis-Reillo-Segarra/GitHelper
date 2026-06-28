@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { GitHubAIService } from "@repo/core";
+import { createAnalysisService } from "@/lib/service";
 import { auth } from "@/auth";
 
 // Validación de la petición con Zod
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
 
         // ¡MAGIA DEL MONOREPO! Importamos el core directamente en la API de Next.js.
         // Usamos el token del usuario autenticado para hablar con GitHub.
-        const service = new GitHubAIService(session.accessToken);
+        const service = createAnalysisService(session.accessToken);
         const analysis = await service.analyzePR(owner, repo, pr);
 
         return NextResponse.json(analysis);
