@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { GitHubAIService } from "@repo/core";
+import { GitHubAIService, type PRAnalysis } from "@repo/core";
 import { SessionBar } from "@/app/components/SessionBar";
 import { ResultCard } from "@/app/components/ResultCard";
 
@@ -45,15 +45,19 @@ async function Analysis({
   number: number;
   token: string;
 }) {
+  // El try/catch envuelve solo la llamada que puede fallar (el await), no la
+  // construcción del JSX: React no renderiza el componente aquí, así que un
+  // error de render no lo capturaría este catch (regla react-hooks/error-boundaries).
+  let result: PRAnalysis;
   try {
     const service = new GitHubAIService(token);
-    const result = await service.analyzePR(owner, repo, number);
-    return <ResultCard result={result} />;
+    result = await service.analyzePR(owner, repo, number);
   } catch (e) {
     const message =
       e instanceof Error ? e.message : "Error inesperado al analizar el PR.";
     return <ErrorBox message={message} />;
   }
+  return <ResultCard result={result} />;
 }
 
 export default async function PRDetailPage({
