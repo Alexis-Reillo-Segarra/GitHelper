@@ -1,16 +1,7 @@
-import figlet from "figlet";
 import { c } from "./theme";
+import { figletWord } from "./figlet";
 
 const TAGLINE = "code review con IA, en tu terminal";
-
-/** Renderiza una palabra como bloques (fuente "ANSI Shadow"), sin filas vacías. */
-function figletWord(word: string): string[] {
-    return figlet
-        .textSync(word, { font: "ANSI Shadow" })
-        .replace(/\s+$/gm, "")
-        .split("\n")
-        .filter((l) => l.length > 0);
-}
 
 /** Une dos bloques lado a lado y los colorea por separado (wordmark bicolor). */
 function joinColored(

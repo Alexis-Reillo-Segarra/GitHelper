@@ -15,7 +15,6 @@
     "@ai-sdk/openai-compatible": "^3.0.0",
     "@octokit/rest": "^22.0.1",
     "ai": "^7.0.3",
-    "octokit": "^5.0.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

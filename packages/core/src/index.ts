@@ -1,9 +1,5 @@
 import { Octokit } from "@octokit/rest";
-import { generateObject, type LanguageModel } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { google } from "@ai-sdk/google";
-import { anthropic } from "@ai-sdk/anthropic";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { LanguageModel } from "ai";
 import { z } from "zod";
 
 // Recomendación final del análisis, alineada con la filosofía de Google
@@ -171,7 +167,14 @@ export function getProvider(id: string): ProviderInfo | undefined {
     );
 }
 
-export function resolveModel(provider?: AIProvider, model?: string): LanguageModel {
+// El SDK del proveedor se carga de forma perezosa (import dinámico): solo se
+// trae el paquete `@ai-sdk/*` que realmente se va a usar, en lugar de cargar
+// los cuatro al importar este módulo. Esto acelera el arranque de comandos que
+// no analizan (CLI `list`/`config`) y reduce el cold-start en serverless.
+export async function resolveModel(
+    provider?: AIProvider,
+    model?: string,
+): Promise<LanguageModel> {
     // Prioridad: argumento explícito > variable de entorno > "gemini" por defecto
     const selected = provider ?? process.env.AI_PROVIDER ?? "gemini";
     const info = getProvider(selected);
@@ -191,12 +194,18 @@ export function resolveModel(provider?: AIProvider, model?: string): LanguageMod
     const modelName = model ?? process.env.AI_MODEL ?? info.defaultModel;
 
     switch (info.id) {
-        case "gemini":
+        case "gemini": {
+            const { google } = await import("@ai-sdk/google");
             return google(modelName);
-        case "openai":
+        }
+        case "openai": {
+            const { openai } = await import("@ai-sdk/openai");
             return openai(modelName);
-        case "anthropic":
+        }
+        case "anthropic": {
+            const { anthropic } = await import("@ai-sdk/anthropic");
             return anthropic(modelName);
+        }
         case "kimi":
         case "minimax": {
             const baseURL =
@@ -206,6 +215,7 @@ export function resolveModel(provider?: AIProvider, model?: string): LanguageMod
                     `Falta la base URL para "${info.id}". Defínela con AI_BASE_URL.`,
                 );
             }
+            const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible");
             const client = createOpenAICompatible({ name: info.id, apiKey, baseURL });
             return client(modelName);
         }
@@ -442,6 +452,8 @@ export class GitHubAIService {
         model: LanguageModel,
         diff: string,
     ): Promise<PRAnalysis> {
+        // `ai` también se carga de forma perezosa: solo cuando hay que analizar.
+        const { generateObject } = await import("ai");
         const { object } = await generateObject({
             model,
             schema: ReviewModelSchema,
@@ -482,7 +494,7 @@ export class GitHubAIService {
             throw new Error("El PR no tiene cambios de código (diff vacío).");
         }
 
-        const model = resolveModel(this.aiOptions?.provider, this.aiOptions?.model);
+        const model = await resolveModel(this.aiOptions?.provider, this.aiOptions?.model);
 
         // Nº de ejecuciones: opción explícita > entorno > por defecto. Mínimo 1.
         const envRuns = Number(process.env.AI_ENSEMBLE_RUNS);

@@ -1,6 +1,7 @@
 import Table from "cli-table3";
 import type { PendingPR, PRAnalysis, Recomendacion } from "@repo/core";
 import { c } from "./theme";
+import { relativeTime } from "./time";
 
 // eslint-disable-next-line no-control-regex
 const ANSI = /\[[0-9;]*m/g;
@@ -25,16 +26,6 @@ export function wrap(text: string, width: number): string[] {
     }
     if (cur) lines.push(cur);
     return lines;
-}
-
-/** Tiempo relativo compacto: "3d", "5h", "12m". */
-function relativeTime(iso: string): string {
-    const diff = Date.now() - new Date(iso).getTime();
-    const m = Math.floor(diff / 60000);
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h`;
-    return `${Math.floor(h / 24)}d`;
 }
 
 /** Caja de bordes redondeados con título opcional embebido en el borde superior. */

@@ -12,6 +12,7 @@ import { Setup } from "./Setup";
 import { colors } from "./theme";
 import { Mascot, MASCOT_ROWS } from "./mascot";
 import { HintBar, Logo, LOGO_WIDTH, Panel, StatusLine, useTerminalSize, Wordmark } from "./ui";
+import { relativeTime } from "../ui/time";
 
 type View = "setup" | "list" | "analysis";
 
@@ -34,14 +35,6 @@ function isAiAuthError(msg: string): boolean {
     return /api[\s_-]?key|x-api-key|invalid.*key|incorrect api key|authentication|unauthorized|401|403/i.test(
         msg,
     );
-}
-
-function timeAgo(iso: string): string {
-    const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-    if (mins < 60) return `${mins}m`;
-    const h = Math.floor(mins / 60);
-    if (h < 24) return `${h}h`;
-    return `${Math.floor(h / 24)}d`;
 }
 
 const RECO_LABEL: Record<Recomendacion, string> = {
@@ -147,7 +140,7 @@ function PRListView({
                                 <Text color={colors.dim}>{`${pr.full_name} `}</Text>
                             )}
                             <Text color={colors.muted}>{`#${pr.number}`}</Text>
-                            <Text color={colors.faint}>{`  ·  ${timeAgo(pr.created_at)}`}</Text>
+                            <Text color={colors.faint}>{`  ·  ${relativeTime(pr.created_at)}`}</Text>
                         </Box>
                     </Box>
                 );
