@@ -11,7 +11,7 @@ const truncate = (s: string, max: number): string =>
     s.length <= max ? s : s.slice(0, max - 1) + "…";
 
 /** Parte un texto en líneas de como máximo `width` columnas, respetando palabras. */
-function wrap(text: string, width: number): string[] {
+export function wrap(text: string, width: number): string[] {
     const words = text.split(/\s+/);
     const lines: string[] = [];
     let cur = "";
