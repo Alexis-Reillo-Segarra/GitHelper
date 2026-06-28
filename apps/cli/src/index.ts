@@ -1,10 +1,7 @@
 import dotenv from "dotenv";
 import { Command } from "commander";
-import ora from "ora";
-import { GitHubAIService } from "@repo/core";
 import { renderBanner } from "./ui/banner";
 import { c } from "./ui/theme";
-import { analysisCard, pendingTable } from "./ui/render";
 import {
     CONFIG_FILE,
     CONFIG_KEYS,
@@ -15,6 +12,11 @@ import {
     setConfig,
     unsetConfig,
 } from "./config";
+
+// Los módulos pesados (core → zod + @octokit/rest, ora, la tabla de cli-table3)
+// se importan de forma perezosa DENTRO de cada acción que los necesita. Así los
+// comandos ligeros (`--version`, `--help`, `config`) arrancan sin pagar su coste
+// de carga (~150 ms menos), que solo asumen `review`, `list` y la TUI.
 
 // .env del cwd (si existe) y luego la config global como fallback.
 // El entorno real tiene prioridad; quiet:true evita los mensajes de dotenv.
@@ -27,7 +29,7 @@ program
     .name("git-helper")
     .description("Code review de Pull Requests de GitHub con IA, desde la terminal")
     .version("0.2.0", "-V, --version", "muestra la versión")
-    .addHelpText("beforeAll", renderBanner());
+    .addHelpText("beforeAll", () => renderBanner());
 
 // ── review (alias: analyze) ────────────────────────────────────────────────
 program
@@ -40,9 +42,13 @@ program
     .option("--json", "imprime el resultado en JSON (sin formato visual)")
     .action(async (opts: { owner: string; repo: string; pr: number; json?: boolean }) => {
         const ref = `${opts.owner}/${opts.repo} #${opts.pr}`;
+        const { GitHubAIService } = await import("@repo/core");
         const spinner = opts.json
             ? null
-            : ora({ text: c.gray(`Analizando ${ref} con IA…`), color: "magenta" }).start();
+            : (await import("ora")).default({
+                  text: c.gray(`Analizando ${ref} con IA…`),
+                  color: "magenta",
+              }).start();
         const service = new GitHubAIService(process.env.GITHUB_TOKEN);
         try {
             const analysis = await service.analyzePR(opts.owner, opts.repo, opts.pr);
@@ -50,6 +56,7 @@ program
             if (opts.json) {
                 console.log(JSON.stringify(analysis, null, 2));
             } else {
+                const { analysisCard } = await import("./ui/render");
                 console.log("\n" + analysisCard(ref, analysis) + "\n");
             }
         } catch (error: any) {
@@ -78,9 +85,13 @@ program
             process.exitCode = 1;
             return;
         }
+        const { GitHubAIService } = await import("@repo/core");
         const spinner = opts.json
             ? null
-            : ora({ text: c.gray("Buscando tus PRs pendientes…"), color: "magenta" }).start();
+            : (await import("ora")).default({
+                  text: c.gray("Buscando tus PRs pendientes…"),
+                  color: "magenta",
+              }).start();
         const service = new GitHubAIService(process.env.GITHUB_TOKEN);
         try {
             const prs = await service.listPendingPullRequests();
@@ -94,6 +105,7 @@ program
                 return;
             }
             console.log("\n" + c.purpleBold(`  ${prs.length} PR pendiente${prs.length === 1 ? "" : "s"}`) + "\n");
+            const { pendingTable } = await import("./ui/render");
             console.log(pendingTable(prs));
             console.log(
                 "\n" +
