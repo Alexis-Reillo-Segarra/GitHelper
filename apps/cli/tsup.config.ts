@@ -2,7 +2,9 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
     entry: ["src/index.ts"],
-    format: ["cjs"],
+    // ESM: la TUI usa Ink (ESM puro). El paquete es un binario (bin), no una
+    // librería, así que ESM es correcto y Node 18+ lo ejecuta sin problemas.
+    format: ["esm"],
     target: "node18",
     platform: "node",
     // Bundlea @repo/core (workspace) dentro del CLI para que el paquete publicado

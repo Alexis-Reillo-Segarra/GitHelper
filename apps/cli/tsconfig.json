@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
-    "module": "commonjs",
+    "target": "ES2020",
+    // tsc solo hace type-check (noEmit); tsup emite el bundle CJS por su cuenta.
+    // "bundler" permite resolver paquetes con `exports` (Ink) como hace esbuild.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

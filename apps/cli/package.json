@@ -1,8 +1,9 @@
 {
   "name": "@alexis-reillo/git-helper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Analiza Pull Requests de GitHub usando Inteligencia Artificial, desde la terminal.",
   "license": "MIT",
+  "type": "module",
   "bin": {
     "git-helper": "./dist/index.js"
   },
@@ -35,7 +36,11 @@
     "dotenv": "^17.4.2",
     "figlet": "^1.8.0",
     "gradient-string": "^2.0.2",
+    "ink": "^7.1.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
     "ora": "^5.4.1",
+    "react": "^19.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -43,6 +48,8 @@
     "@types/figlet": "^1.7.0",
     "@types/gradient-string": "^1.1.6",
     "@types/node": "^20",
+    "@types/react": "^19.0.0",
+    "ink-testing-library": "^4.0.0",
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",
     "vitest": "^2.1.9"

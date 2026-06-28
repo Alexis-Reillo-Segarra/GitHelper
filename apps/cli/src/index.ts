@@ -26,7 +26,7 @@ const program = new Command();
 program
     .name("git-helper")
     .description("Code review de Pull Requests de GitHub con IA, desde la terminal")
-    .version("0.1.0", "-V, --version", "muestra la versión")
+    .version("0.2.0", "-V, --version", "muestra la versión")
     .addHelpText("beforeAll", renderBanner());
 
 // ── review (alias: analyze) ────────────────────────────────────────────────
@@ -172,9 +172,11 @@ config
 
 config.action(() => config.help());
 
-// Sin subcomando: banner + ayuda (a lo Claude Code).
-program.action(() => {
-    program.help();
+// Sin subcomando: abre la TUI interactiva a pantalla completa (estilo Claude Code).
+// Ink se carga de forma perezosa para no penalizar el arranque de los subcomandos.
+program.action(async () => {
+    const { runTui } = await import("./tui/run");
+    await runTui(process.env.GITHUB_TOKEN);
 });
 
 program.parse();
