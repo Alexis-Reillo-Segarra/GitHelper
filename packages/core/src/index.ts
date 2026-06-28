@@ -9,6 +9,11 @@ import {
     type GhSearchResult,
 } from "./github";
 
+// Re-exportamos el error del cliente HTTP para que las apps puedan enrutar por
+// código de estado (p. ej. la TUI distingue un 401 de GitHub de un fallo de la
+// clave de IA) en vez de depender del texto del mensaje.
+export { GitHubApiError } from "./github";
+
 // Recomendación final del análisis, alineada con la filosofía de Google
 // ("mejora la salud del código" en vez de "perfección"): una escala corta y
 // categórica es más fiable y consistente que una nota holística 1-10.

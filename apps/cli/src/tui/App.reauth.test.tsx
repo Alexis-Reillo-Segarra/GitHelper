@@ -1,15 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "ink-testing-library";
 
-// Mock de @repo/core: GitHubAIService falla con "Bad credentials" al listar,
-// conservando el resto de exports reales (AI_PROVIDERS, getProvider, …).
+// Mock de @repo/core: GitHubAIService falla con un 401 de GitHub al listar
+// (lo que produce el cliente real ante un token caducado), conservando el resto
+// de exports reales (AI_PROVIDERS, getProvider, GitHubApiError, …).
 vi.mock("@repo/core", async (importActual) => {
     const actual = await importActual<typeof import("@repo/core")>();
     return {
         ...actual,
         GitHubAIService: class {
             async listPendingPullRequests(): Promise<never> {
-                throw new Error("Bad credentials - https://docs.github.com/rest");
+                throw new actual.GitHubApiError(401, "GitHub API 401: Bad credentials");
             }
             async analyzePR(): Promise<never> {
                 throw new Error("no debería llamarse en este test");
