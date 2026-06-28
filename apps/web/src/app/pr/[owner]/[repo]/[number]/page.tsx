@@ -2,8 +2,8 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { unstable_cache } from "next/cache";
-import { auth } from "@/auth";
 import type { PRAnalysis } from "@repo/core";
+import { readConfig, type WebConfig } from "@/lib/config";
 import { createAnalysisService } from "@/lib/service";
 import { SessionBar } from "@/app/components/SessionBar";
 import { ResultCard } from "@/app/components/ResultCard";
@@ -40,28 +40,29 @@ async function Analysis({
   owner,
   repo,
   number,
-  token,
+  config,
 }: {
   owner: string;
   repo: string;
   number: number;
-  token: string;
+  config: WebConfig;
 }) {
   // El try/catch envuelve solo la llamada que puede fallar (el await), no la
   // construcción del JSX: React no renderiza el componente aquí, así que un
   // error de render no lo capturaría este catch (regla react-hooks/error-boundaries).
   let result: PRAnalysis;
   try {
-    const service = createAnalysisService(token);
+    const service = createAnalysisService(config);
 
     // El SHA de cabecera identifica el contenido del PR: mientras no cambie, el
     // análisis cacheado sigue siendo válido y nos ahorramos las llamadas a la
-    // IA (lo caro). La clave NO incluye el token: el resultado es el mismo para
-    // cualquier usuario con acceso, así que la caché se comparte por PR+SHA.
+    // IA (lo caro). La clave NO incluye credenciales, pero sí el proveedor y el
+    // modelo: dos modelos distintos pueden dar análisis distintos del mismo SHA.
     const sha = await service.getPullHeadSha(owner, repo, number);
+    const modelKey = config.model ?? "default";
     const getCachedAnalysis = unstable_cache(
       () => service.analyzePR(owner, repo, number),
-      ["pr-analysis", owner, repo, String(number), sha],
+      ["pr-analysis", owner, repo, String(number), sha, config.provider, modelKey],
       { revalidate: 86400, tags: [`pr-analysis:${owner}/${repo}#${number}`] },
     );
     result = await getCachedAnalysis();
@@ -78,10 +79,10 @@ export default async function PRDetailPage({
 }: {
   params: PageParams;
 }) {
-  const session = await auth();
+  const config = await readConfig();
 
   // Red de seguridad (el proxy ya protege la ruta).
-  if (!session?.accessToken) {
+  if (!config) {
     redirect("/login");
   }
 
@@ -90,7 +91,7 @@ export default async function PRDetailPage({
 
   return (
     <>
-      <SessionBar name={session.user?.name} image={session.user?.image} />
+      <SessionBar provider={config.provider} model={config.model} />
 
       <main className="mx-auto w-full max-w-2xl px-6 pb-24 pt-12">
         <Link
@@ -115,7 +116,7 @@ export default async function PRDetailPage({
               owner={owner}
               repo={repo}
               number={prNumber}
-              token={session.accessToken}
+              config={config}
             />
           </Suspense>
         )}

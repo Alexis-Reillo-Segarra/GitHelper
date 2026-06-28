@@ -41,4 +41,23 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   /* Suaviza la tipografía sobre fondo oscuro */
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Halo sutil en la parte superior para dar profundidad sin ruido. */
+  background-image: radial-gradient(
+    60rem 32rem at 50% -8rem,
+    rgba(255, 255, 255, 0.05),
+    transparent 70%
+  );
+  background-attachment: fixed;
+}
+
+/* Selección de texto coherente con el tema oscuro. */
+::selection {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Tipografía mono para inputs de credenciales y códigos. */
+code,
+kbd {
+  font-family: var(--font-mono), ui-monospace, monospace;
 }

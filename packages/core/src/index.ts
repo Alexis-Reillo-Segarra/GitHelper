@@ -183,9 +183,19 @@ export function getProvider(id: string): ProviderInfo | undefined {
 // trae el paquete `@ai-sdk/*` que realmente se va a usar, en lugar de cargar
 // los cuatro al importar este módulo. Esto acelera el arranque de comandos que
 // no analizan (CLI `list`/`config`) y reduce el cold-start en serverless.
+// Opciones de credenciales que se pueden inyectar explícitamente (p. ej. la web,
+// que lee la clave de una cookie por petición en vez de `process.env`). Si se
+// omiten, se cae a las variables de entorno, preservando el comportamiento de la
+// CLI.
+export type ResolveModelOptions = {
+    apiKey?: string;
+    baseURL?: string;
+};
+
 export async function resolveModel(
     provider?: AIProvider,
     model?: string,
+    opts?: ResolveModelOptions,
 ): Promise<LanguageModel> {
     // Prioridad: argumento explícito > variable de entorno > "gemini" por defecto
     const selected = provider ?? process.env.AI_PROVIDER ?? "gemini";
@@ -196,7 +206,8 @@ export async function resolveModel(
         );
     }
 
-    const apiKey = process.env[info.apiKeyEnv];
+    // Clave: opción explícita > variable de entorno del proveedor.
+    const apiKey = opts?.apiKey ?? process.env[info.apiKeyEnv];
     if (!apiKey) {
         throw new Error(
             `Falta la variable ${info.apiKeyEnv}, requerida para el proveedor "${info.id}". Consíguela en ${info.apiKeyUrl}`,
@@ -205,23 +216,29 @@ export async function resolveModel(
 
     const modelName = model ?? process.env.AI_MODEL ?? info.defaultModel;
 
+    // Usamos las factorías `create*` con la clave explícita (en vez de los
+    // singletons que solo leen del entorno) para que cada llamada pueda traer su
+    // propia credencial sin depender de `process.env` —imprescindible en la web,
+    // donde varios usuarios comparten el proceso del servidor.
     switch (info.id) {
         case "gemini": {
-            const { google } = await import("@ai-sdk/google");
-            return google(modelName);
+            const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
+            return createGoogleGenerativeAI({ apiKey })(modelName);
         }
         case "openai": {
-            const { openai } = await import("@ai-sdk/openai");
-            return openai(modelName);
+            const { createOpenAI } = await import("@ai-sdk/openai");
+            return createOpenAI({ apiKey })(modelName);
         }
         case "anthropic": {
-            const { anthropic } = await import("@ai-sdk/anthropic");
-            return anthropic(modelName);
+            const { createAnthropic } = await import("@ai-sdk/anthropic");
+            return createAnthropic({ apiKey })(modelName);
         }
         case "kimi":
         case "minimax": {
             const baseURL =
-                process.env.AI_BASE_URL ?? OPENAI_COMPATIBLE_BASE_URL[info.id];
+                opts?.baseURL ??
+                process.env.AI_BASE_URL ??
+                OPENAI_COMPATIBLE_BASE_URL[info.id];
             if (!baseURL) {
                 throw new Error(
                     `Falta la base URL para "${info.id}". Defínela con AI_BASE_URL.`,
@@ -348,6 +365,10 @@ export class GitHubAIService {
             provider?: AIProvider;
             model?: string;
             ensembleRuns?: number;
+            // Credenciales explícitas del proveedor de IA. Si se omiten, se usan
+            // las variables de entorno (comportamiento por defecto de la CLI).
+            apiKey?: string;
+            baseURL?: string;
         },
     ) {
         this.gh = new GitHubClient(token);
@@ -513,7 +534,10 @@ export class GitHubAIService {
             throw new Error("El PR no tiene cambios de código (diff vacío).");
         }
 
-        const model = await resolveModel(this.aiOptions?.provider, this.aiOptions?.model);
+        const model = await resolveModel(this.aiOptions?.provider, this.aiOptions?.model, {
+            apiKey: this.aiOptions?.apiKey,
+            baseURL: this.aiOptions?.baseURL,
+        });
 
         // Nº de ejecuciones: opción explícita > entorno > por defecto. Mínimo 1.
         const envRuns = Number(process.env.AI_ENSEMBLE_RUNS);

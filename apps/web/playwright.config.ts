@@ -1,8 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E de flujos PÚBLICOS/deterministas (sin OAuth real): redirección de
-// protección y página de login, con a11y de página completa (contraste incluido,
-// navegador real). Los flujos autenticados se cubren a nivel de componente.
+// E2E de flujos PÚBLICOS/deterministas (sin credenciales reales): redirección de
+// protección y asistente de configuración, con a11y de página completa
+// (contraste incluido, navegador real). Los flujos configurados se cubren a
+// nivel de componente.
 export default defineConfig({
     testDir: "./e2e",
     fullyParallel: true,
@@ -19,13 +20,8 @@ export default defineConfig({
         url: "http://localhost:3000",
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,
-        // Valores dummy: la app arranca y el proxy redirige; nunca se inicia OAuth real.
-        env: {
-            AUTH_SECRET: "e2e-dummy-secret-not-real-do-not-use",
-            AUTH_GITHUB_ID: "e2e-dummy-id",
-            AUTH_GITHUB_SECRET: "e2e-dummy-secret",
-            // NextAuth v5 exige confiar en el host fuera de Vercel (evita UntrustedHost).
-            AUTH_TRUST_HOST: "true",
-        },
+        // La app arranca sin credenciales: el proxy redirige al asistente y el
+        // asistente no contacta con ningún servicio hasta que el usuario envía
+        // sus claves, así que no hace falta ninguna variable de entorno.
     },
 });
