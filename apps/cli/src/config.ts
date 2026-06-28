@@ -10,9 +10,13 @@ export const CONFIG_FILE = join(CONFIG_DIR, ".env");
 export const CONFIG_KEYS = [
     "AI_PROVIDER",
     "AI_MODEL",
+    "AI_BASE_URL",
     "AI_ENSEMBLE_RUNS",
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "MOONSHOT_API_KEY",
+    "MINIMAX_API_KEY",
     "GITHUB_TOKEN",
 ] as const;
 
@@ -22,6 +26,9 @@ export type ConfigKey = (typeof CONFIG_KEYS)[number];
 const SECRET_KEYS = new Set<ConfigKey>([
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "MOONSHOT_API_KEY",
+    "MINIMAX_API_KEY",
     "GITHUB_TOKEN",
 ]);
 
