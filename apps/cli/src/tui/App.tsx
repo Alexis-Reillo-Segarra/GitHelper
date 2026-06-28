@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput } from "ink";
 import Spinner from "ink-spinner";
 import {
     GitHubAIService,
@@ -10,6 +10,8 @@ import {
 } from "@repo/core";
 import { Setup } from "./Setup";
 import { colors } from "./theme";
+import { Mascot, MASCOT_ROWS } from "./mascot";
+import { HintBar, Logo, LOGO_WIDTH, Panel, StatusLine, useTerminalSize, Wordmark } from "./ui";
 
 type View = "setup" | "list" | "analysis";
 
@@ -55,55 +57,21 @@ const RECO_COLOR: Record<Recomendacion, string> = {
     bloqueado: colors.bad,
 };
 
-// ── Cabecera con mascota + título ──────────────────────────────────────────
-function Header() {
+// Barra de puntuación ▓▓▓▓▓░░░░░ con color según el tramo.
+function ScoreBar({ score }: { score: number }) {
+    const filled = Math.max(0, Math.min(10, Math.round(score)));
+    const color = score >= 8 ? colors.ok : score >= 5 ? colors.warn : colors.bad;
     return (
-        <Box
-            borderStyle="round"
-            borderColor={colors.purple}
-            paddingX={1}
-            justifyContent="space-between"
-        >
-            <Box>
-                <Text color={colors.purpleLight}>{"⬡ "}</Text>
-                <Text color={colors.purple} bold>
-                    Git-Helper
-                </Text>
-                <Text color={colors.dim}>{"  ·  code review con IA"}</Text>
-            </Box>
-            <Text color={colors.dim}>🐙</Text>
-        </Box>
+        <Text>
+            <Text color={color}>{"▰".repeat(filled)}</Text>
+            <Text color={colors.faint}>{"▱".repeat(10 - filled)}</Text>
+            <Text color={color} bold>{`  ${score}/10`}</Text>
+        </Text>
     );
 }
 
-// ── Barra de estado inferior con atajos ────────────────────────────────────
-function StatusBar({ view }: { view: View }) {
-    const keys: [string, string][] =
-        view === "list"
-            ? [
-                  ["↑↓", "navegar"],
-                  ["⏎", "analizar"],
-                  ["r", "refrescar"],
-                  ["s", "configurar"],
-                  ["q", "salir"],
-              ]
-            : [
-                  ["esc", "volver"],
-                  ["q", "salir"],
-              ];
-    return (
-        <Box paddingX={1} gap={2}>
-            {keys.map(([k, label]) => (
-                <Box key={k}>
-                    <Text color={colors.purpleLight} bold>
-                        {k}
-                    </Text>
-                    <Text color={colors.dim}>{` ${label}`}</Text>
-                </Box>
-            ))}
-        </Box>
-    );
-}
+// Nº de PRs por página: cuando hay más, la lista se pagina para no desbordar.
+const PAGE_SIZE = 5;
 
 // ── Lista de PRs pendientes ────────────────────────────────────────────────
 function PRListView({
@@ -111,65 +79,87 @@ function PRListView({
     selected,
     loading,
     error,
+    compact,
 }: {
     prs: PendingPR[];
     selected: number;
     loading: boolean;
     error: string | null;
+    // En terminales estrechas omitimos el repo del metadato para no descuadrar.
+    compact: boolean;
 }) {
     if (loading) {
         return (
-            <Box paddingX={1} paddingY={1}>
-                <Text color={colors.purple}>
+            <Box>
+                <Text color={colors.accent}>
                     <Spinner type="dots" />
                 </Text>
-                <Text color={colors.gray}>{" Cargando tus PRs pendientes…"}</Text>
+                <Text color={colors.muted}>{" Cargando tus PRs pendientes…"}</Text>
             </Box>
         );
     }
     if (error) {
         return (
-            <Box paddingX={1} paddingY={1} flexDirection="column">
+            <Box flexDirection="column">
                 <Text color={colors.bad}>{`✗ ${error}`}</Text>
-                <Text color={colors.dim}>
-                    {"Pulsa "}
-                    <Text color={colors.purpleLight} bold>
+                <Box marginTop={1}>
+                    <Text color={colors.dim}>{"Pulsa "}</Text>
+                    <Text color={colors.accent} bold>
                         s
                     </Text>
-                    {" para volver a introducir tu proveedor de IA y token de GitHub."}
-                </Text>
+                    <Text color={colors.dim}>
+                        {" para reintroducir tu proveedor de IA y token de GitHub."}
+                    </Text>
+                </Box>
             </Box>
         );
     }
     if (prs.length === 0) {
-        return (
-            <Box paddingX={1} paddingY={1}>
-                <Text color={colors.ok}>✓ No tienes PRs pendientes. ¡Todo limpio!</Text>
-            </Box>
-        );
+        return <Text color={colors.ok}>✓ No tienes PRs pendientes. ¡Todo limpio!</Text>;
     }
+    // Paginación: mostramos solo la página que contiene el PR seleccionado.
+    const total = prs.length;
+    const pageCount = Math.ceil(total / PAGE_SIZE);
+    const page = Math.floor(selected / PAGE_SIZE);
+    const start = page * PAGE_SIZE;
+    const visible = prs.slice(start, start + PAGE_SIZE);
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1}>
-            {prs.map((pr, i) => {
+        <Box flexDirection="column">
+            {visible.map((pr, idx) => {
+                const i = start + idx;
                 const active = i === selected;
                 return (
-                    <Box key={`${pr.full_name}#${pr.number}`}>
-                        <Text color={active ? colors.purple : colors.dim}>
-                            {active ? "▶ " : "  "}
+                    <Box key={`${pr.full_name}#${pr.number}`} gap={1}>
+                        <Text color={active ? colors.accent : colors.faint} bold>
+                            {active ? "▍" : " "}
                         </Text>
-                        <Box width={50}>
+                        <Box flexGrow={1} flexShrink={1} minWidth={6} overflow="hidden">
                             <Text
-                                color={active ? colors.fg : colors.gray}
+                                color={active ? colors.fg : colors.muted}
                                 bold={active}
                                 wrap="truncate-end"
                             >
                                 {pr.title}
                             </Text>
                         </Box>
-                        <Text color={colors.dim}>{`  ${pr.full_name} #${pr.number} · ${timeAgo(pr.created_at)}`}</Text>
+                        <Box flexShrink={0}>
+                            {compact ? null : (
+                                <Text color={colors.dim}>{`${pr.full_name} `}</Text>
+                            )}
+                            <Text color={colors.muted}>{`#${pr.number}`}</Text>
+                            <Text color={colors.faint}>{`  ·  ${timeAgo(pr.created_at)}`}</Text>
+                        </Box>
                     </Box>
                 );
             })}
+            {pageCount > 1 ? (
+                <Box marginTop={1} justifyContent="space-between">
+                    <Text color={colors.dim}>{`Página ${page + 1}/${pageCount}`}</Text>
+                    <Text color={colors.faint}>
+                        {`${start + 1}–${Math.min(start + PAGE_SIZE, total)} de ${total}`}
+                    </Text>
+                </Box>
+            ) : null}
         </Box>
     );
 }
@@ -187,63 +177,61 @@ function AnalysisView({
     error: string | null;
 }) {
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1}>
-            <Text color={colors.purpleLight} bold>
-                {refLabel}
-            </Text>
-            <Box marginTop={1} flexDirection="column">
-                {analyzing ? (
-                    <Box>
-                        <Text color={colors.purple}>
-                            <Spinner type="dots" />
-                        </Text>
-                        <Text color={colors.gray}>{" Analizando con IA…"}</Text>
-                    </Box>
-                ) : error ? (
-                    <Text color={colors.bad}>{`✗ ${error}`}</Text>
-                ) : analysis ? (
-                    <Box flexDirection="column" gap={1}>
+        <Panel title={refLabel}>
+            {analyzing ? (
+                <Box>
+                    <Text color={colors.accent}>
+                        <Spinner type="dots" />
+                    </Text>
+                    <Text color={colors.muted}>{" Analizando con IA…"}</Text>
+                </Box>
+            ) : error ? (
+                <Text color={colors.bad}>{`✗ ${error}`}</Text>
+            ) : analysis ? (
+                <Box flexDirection="column" gap={1}>
+                    <Box gap={4}>
                         <Box>
                             <Text color={colors.dim}>{"Puntuación  "}</Text>
-                            <Text
-                                color={
-                                    analysis.puntuacion_codigo >= 8
-                                        ? colors.ok
-                                        : analysis.puntuacion_codigo >= 5
-                                          ? colors.warn
-                                          : colors.bad
-                                }
-                                bold
-                            >
-                                {`${analysis.puntuacion_codigo}/10`}
-                            </Text>
-                            <Text color={colors.dim}>{"   Veredicto  "}</Text>
+                            <ScoreBar score={analysis.puntuacion_codigo} />
+                        </Box>
+                        <Box>
+                            <Text color={colors.dim}>{"Veredicto  "}</Text>
                             <Text color={RECO_COLOR[analysis.recomendacion]} bold>
                                 {`● ${RECO_LABEL[analysis.recomendacion]}`}
                             </Text>
                         </Box>
-                        <Text color={colors.gray}>{analysis.resumen_ejecutivo}</Text>
-                        {analysis.posibles_bugs.length > 0 ? (
-                            <Box flexDirection="column">
-                                <Text color={colors.warn}>Posibles bugs:</Text>
-                                {analysis.posibles_bugs.map((b, i) => (
-                                    <Text key={i} color={colors.fg}>{`  • ${b}`}</Text>
-                                ))}
-                            </Box>
-                        ) : (
-                            <Text color={colors.ok}>✓ Sin bugs evidentes.</Text>
-                        )}
                     </Box>
-                ) : null}
-            </Box>
-        </Box>
+                    <Text color={colors.muted}>{analysis.resumen_ejecutivo}</Text>
+                    {analysis.posibles_bugs.length > 0 ? (
+                        <Box flexDirection="column">
+                            <Text color={colors.warn} bold>
+                                Posibles bugs
+                            </Text>
+                            {analysis.posibles_bugs.map((b, i) => (
+                                <Box key={i}>
+                                    <Text color={colors.faint}>{" • "}</Text>
+                                    <Text color={colors.fg}>{b}</Text>
+                                </Box>
+                            ))}
+                        </Box>
+                    ) : (
+                        <Text color={colors.ok}>✓ Sin bugs evidentes.</Text>
+                    )}
+                </Box>
+            ) : null}
+        </Panel>
     );
 }
 
 export function App({ token: initialToken }: { token?: string }) {
     const { exit } = useApp();
-    const { stdout } = useStdout();
-    const rows = stdout?.rows ?? 24;
+    const { columns, rows } = useTerminalSize();
+    // El logo grande en bloques solo cabe en terminales suficientemente anchas
+    // y altas; si no, caemos al wordmark compacto para no desbordar/descuadrar.
+    const showBigLogo = columns >= LOGO_WIDTH + 4 && rows >= 22;
+    // La mascota (pequeña) corona el menú cuando hay altura de sobra para ella
+    // más el logo grande y el panel; si no, se cae al logo o al wordmark.
+    const showMascot = columns >= LOGO_WIDTH + 4 && rows >= MASCOT_ROWS + 16;
 
     // Qué falta configurar (al arrancar y también si el usuario pide reconfigurar
     // tras unas credenciales inválidas). El wizard lee estos flags.
@@ -365,6 +353,10 @@ export function App({ token: initialToken }: { token?: string }) {
             if (view === "list") {
                 if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
                 if (key.downArrow) setSelected((s) => Math.min(prs.length - 1, s + 1));
+                // ←/→ saltan de página completa (5 en 5).
+                if (key.leftArrow) setSelected((s) => Math.max(0, s - PAGE_SIZE));
+                if (key.rightArrow)
+                    setSelected((s) => Math.min(prs.length - 1, s + PAGE_SIZE));
                 if (key.return && prs[selected]) void analyze(prs[selected]);
                 if (input === "r" && token) void loadList(token);
                 if (input === "s") startSetup();
@@ -376,29 +368,112 @@ export function App({ token: initialToken }: { token?: string }) {
         { isActive: view === "list" || view === "analysis" },
     );
 
-    return (
-        <Box flexDirection="column" height={rows}>
-            <Header />
-            <Box flexGrow={1} flexDirection="column">
-                {view === "setup" ? (
+    const listKeys: [string, string][] = [
+        ["↑↓", "navegar"],
+        // El salto de página solo tiene sentido cuando la lista está paginada.
+        ...(prs.length > PAGE_SIZE
+            ? ([["←→", "página"]] as [string, string][])
+            : []),
+        ["⏎", "analizar"],
+        ["r", "refrescar"],
+        ["s", "configurar"],
+        ["q", "salir"],
+    ];
+    const analysisKeys: [string, string][] = [
+        ["esc", "volver"],
+        ["q", "salir"],
+    ];
+
+    // ── Vista: setup ─────────────────────────────────────────────────────────
+    if (view === "setup") {
+        return (
+            <Box flexDirection="column" height={rows} paddingX={2} paddingTop={1}>
+                <Wordmark />
+                <Box flexGrow={1} flexDirection="column" marginTop={1}>
                     <Setup
                         needProvider={needs.provider}
                         needGithub={needs.github}
                         notice={setupNotice ?? undefined}
                         onDone={onSetupDone}
                     />
-                ) : view === "list" ? (
-                    <PRListView prs={prs} selected={selected} loading={loading} error={listError} />
-                ) : (
+                </Box>
+            </Box>
+        );
+    }
+
+    // ── Vista: análisis ──────────────────────────────────────────────────────
+    if (view === "analysis") {
+        return (
+            <Box flexDirection="column" height={rows} paddingX={2} paddingTop={1}>
+                <Wordmark />
+                <Box flexGrow={1} flexDirection="column" marginTop={1}>
                     <AnalysisView
                         refLabel={refLabel}
                         analyzing={analyzing}
                         analysis={analysis}
                         error={analyzeError}
                     />
-                )}
+                </Box>
+                <Box
+                    justifyContent="space-between"
+                    columnGap={2}
+                    flexWrap="wrap"
+                    paddingX={1}
+                >
+                    <StatusLine mode="Review" />
+                    <HintBar keys={analysisKeys} />
+                </Box>
             </Box>
-            {view === "setup" ? null : <StatusBar view={view} />}
+        );
+    }
+
+    // ── Vista: home / lista ──────────────────────────────────────────────────
+    return (
+        <Box flexDirection="column" height={rows} paddingX={2}>
+            <Box
+                flexGrow={1}
+                flexDirection="column"
+                justifyContent={showBigLogo || showMascot ? "center" : "flex-start"}
+            >
+                <Box
+                    marginTop={showBigLogo || showMascot ? 0 : 1}
+                    marginBottom={1}
+                    flexDirection="column"
+                    alignItems="center"
+                >
+                    {showMascot ? (
+                        <>
+                            <Mascot />
+                            <Box marginTop={1}>
+                                <Logo />
+                            </Box>
+                        </>
+                    ) : showBigLogo ? (
+                        <Logo />
+                    ) : (
+                        <Wordmark />
+                    )}
+                </Box>
+                <Panel
+                    title={
+                        prs.length > 0
+                            ? `  PRs pendientes · ${prs.length}`
+                            : "  PRs pendientes"
+                    }
+                >
+                    <PRListView
+                        prs={prs}
+                        selected={selected}
+                        loading={loading}
+                        error={listError}
+                        compact={columns < 72}
+                    />
+                </Panel>
+            </Box>
+            <Box justifyContent="space-between" paddingX={1}>
+                <StatusLine mode="Review" />
+                <HintBar keys={listKeys} />
+            </Box>
         </Box>
     );
 }

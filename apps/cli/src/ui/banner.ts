@@ -1,67 +1,47 @@
 import figlet from "figlet";
-import { c, purpleGradient } from "./theme";
+import { c } from "./theme";
 
-// Mascota: pulpo con casco de obra. Solo chars ancho-1 para que el cálculo
-// de ancho de la caja sea exacto (sin glifos de doble ancho que descuadren).
-const OCTOPUS: string[] = [
-    "    _____     ",
-    "   /=====\\    ", // cúpula del casco
-    "  (_________)  ", // ala del casco de obra
-    "   | o   o |   ", // cara
-    "    \\  ~  /    ", // boca
-    "   _/|||||\\_   ", // tentáculos
-    "   ~ ~ ~ ~ ~   ", // puntas
-];
+const TAGLINE = "code review con IA, en tu terminal";
 
-const TAGLINE = "Code review con IA, en tu terminal";
-
-/** Une dos bloques de texto lado a lado, centrados verticalmente. */
-function joinSideBySide(left: string[], right: string[], gap = 3): string[] {
-    const height = Math.max(left.length, right.length);
-    const padBlock = (lines: string[], width: number): string[] => {
-        const top = Math.floor((height - lines.length) / 2);
-        const out: string[] = [];
-        for (let i = 0; i < height; i++) {
-            const line = lines[i - top] ?? "";
-            out.push(line.padEnd(width, " "));
-        }
-        return out;
-    };
-    const lw = Math.max(...left.map((l) => l.length));
-    const rw = Math.max(...right.map((l) => l.length));
-    const L = padBlock(left, lw);
-    const R = padBlock(right, rw);
-    return L.map((l, i) => l + " ".repeat(gap) + R[i]);
-}
-
-/** Envuelve líneas de texto plano en una caja de bordes redondeados. */
-function boxify(lines: string[]): string[] {
-    const width = Math.max(...lines.map((l) => l.length));
-    const pad = 2;
-    const inner = width + pad * 2;
-    const top = "╭" + "─".repeat(inner) + "╮";
-    const bottom = "╰" + "─".repeat(inner) + "╯";
-    const body = lines.map(
-        (l) => "│" + " ".repeat(pad) + l.padEnd(width, " ") + " ".repeat(pad) + "│"
-    );
-    return [top, ...body, bottom];
-}
-
-/** Banner completo: pulpo + título figlet + tagline, en caja morada sobre negro. */
-export function renderBanner(): string {
-    const title = figlet
-        .textSync("Git-Helper", { font: "Standard" })
+/** Renderiza una palabra como bloques (fuente "ANSI Shadow"), sin filas vacías. */
+function figletWord(word: string): string[] {
+    return figlet
+        .textSync(word, { font: "ANSI Shadow" })
         .replace(/\s+$/gm, "")
         .split("\n")
         .filter((l) => l.length > 0);
+}
 
-    const composed = joinSideBySide(OCTOPUS, title, 3);
+/** Une dos bloques lado a lado y los colorea por separado (wordmark bicolor). */
+function joinColored(
+    left: string[],
+    right: string[],
+    paintLeft: (s: string) => string,
+    paintRight: (s: string) => string,
+): string[] {
+    const h = Math.max(left.length, right.length);
+    const lw = Math.max(...left.map((l) => l.length));
+    const rw = Math.max(...right.map((l) => l.length));
+    const out: string[] = [];
+    for (let i = 0; i < h; i++) {
+        const l = (left[i] ?? "").padEnd(lw, " ");
+        const r = (right[i] ?? "").padEnd(rw, " ");
+        out.push(paintLeft(l) + paintRight(r));
+    }
+    return out;
+}
 
-    // Línea de tagline centrada bajo el conjunto.
-    const blockWidth = Math.max(...composed.map((l) => l.length));
-    const tagPad = Math.max(0, Math.floor((blockWidth - TAGLINE.length) / 2));
-    const tagLine = " ".repeat(tagPad) + TAGLINE;
-
-    const boxed = boxify([...composed, "", tagLine]);
-    return "\n" + purpleGradient(boxed.join("\n")) + "\n";
+/**
+ * Banner del `--help`: wordmark "git·helper" en bloques (git tenue, helper en
+ * acento) y un tagline alineado a la izquierda bajo el logo. Estética sobria,
+ * sin caja ni adornos, en línea con la TUI.
+ */
+export function renderBanner(): string {
+    const lines = joinColored(
+        figletWord("git"),
+        figletWord("helper"),
+        (s) => c.dim(s),
+        (s) => c.light(s),
+    );
+    return "\n" + lines.join("\n") + "\n\n" + "  " + c.gray(TAGLINE) + "\n";
 }

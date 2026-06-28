@@ -1,5 +1,4 @@
 import chalk from "chalk";
-import gradient from "gradient-string";
 
 // Paleta: morado sobre negro, minimalista.
 export const PURPLE = "#8b5cf6"; // violet-500
@@ -19,7 +18,3 @@ export const c = {
     bad: chalk.hex("#ef4444"), // red-500
     warn: chalk.hex("#f59e0b"), // amber-500
 };
-
-/** Degradado morado para títulos / banner. */
-export const purpleGradient = (text: string): string =>
-    gradient([PURPLE_LIGHT, PURPLE, PURPLE_DARK]).multiline(text);

@@ -4,8 +4,33 @@ import TextInput from "ink-text-input";
 import { AI_PROVIDERS, type ModelInfo, type ProviderInfo } from "@repo/core";
 import { setConfig, type ConfigKey } from "../config";
 import { colors } from "./theme";
+import { HintBar, Panel } from "./ui";
 
 type Step = "provider" | "model" | "aikey" | "github";
+
+// Cabecera de cada paso: título destacado + subtítulo tenue.
+function StepHeading({ title, hint }: { title: string; hint?: string }) {
+    return (
+        <Box flexDirection="column" marginBottom={1}>
+            <Text bold color={colors.fg}>
+                {title}
+            </Text>
+            {hint ? <Text color={colors.dim}>{hint}</Text> : null}
+        </Box>
+    );
+}
+
+// Marcador de fila seleccionada, coherente en todos los selectores.
+function Row({ active, children }: { active: boolean; children: React.ReactNode }) {
+    return (
+        <Box>
+            <Text color={active ? colors.accent : colors.faint} bold>
+                {active ? "▍ " : "  "}
+            </Text>
+            {children}
+        </Box>
+    );
+}
 
 // Selector de proveedor de IA con icono, navegable con ↑↓.
 // Bajo la lista se muestra el detalle (modelo y dónde sacar la clave) del
@@ -29,33 +54,34 @@ function ProviderSelect({
     });
     const current = AI_PROVIDERS[idx]!;
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1}>
-            <Text bold color={colors.fg}>
-                Elige tu proveedor de IA
-            </Text>
-            <Text color={colors.dim}>
-                Lo usaré para revisar tus PRs. Podrás cambiarlo luego.
-            </Text>
-            <Box marginTop={1} flexDirection="column">
+        <Panel>
+            <StepHeading
+                title="Elige tu proveedor de IA"
+                hint="Lo usaré para revisar tus PRs. Podrás cambiarlo luego."
+            />
+            <Box flexDirection="column">
                 {AI_PROVIDERS.map((p, i) => {
                     const active = i === idx;
                     return (
-                        <Box key={p.id}>
-                            <Text color={active ? colors.purple : colors.dim}>
-                                {active ? "▶ " : "  "}
-                            </Text>
-                            <Text color={active ? colors.fg : colors.gray} bold={active}>
+                        <Row key={p.id} active={active}>
+                            <Text color={active ? colors.fg : colors.muted} bold={active}>
                                 {`${p.icon}  ${p.label}`}
                             </Text>
-                        </Box>
+                        </Row>
                     );
                 })}
             </Box>
             <Box marginTop={1} flexDirection="column">
-                <Text color={colors.purpleLight}>{`modelo · ${current.defaultModel}`}</Text>
-                <Text color={colors.dim}>{`clave · ${current.apiKeyUrl}`}</Text>
+                <Box>
+                    <Text color={colors.dim}>{"modelo  "}</Text>
+                    <Text color={colors.accent}>{current.defaultModel}</Text>
+                </Box>
+                <Box>
+                    <Text color={colors.dim}>{"clave   "}</Text>
+                    <Text color={colors.muted}>{current.apiKeyUrl}</Text>
+                </Box>
             </Box>
-        </Box>
+        </Panel>
     );
 }
 
@@ -83,36 +109,32 @@ function ModelSelect({
     });
     const current = models[idx] ?? models[0]!;
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1}>
-            <Text bold color={colors.fg}>
-                {`${provider.icon}  Elige el modelo de ${provider.label}`}
-            </Text>
-            <Text color={colors.dim}>
-                Más capaz = mejores reviews pero más lento y caro.
-            </Text>
-            <Box marginTop={1} flexDirection="column">
+        <Panel>
+            <StepHeading
+                title={`${provider.icon}  Elige el modelo de ${provider.label}`}
+                hint="Más capaz = mejores reviews pero más lento y caro."
+            />
+            <Box flexDirection="column">
                 {models.map((m, i) => {
                     const active = i === idx;
                     const isDefault = m.id === provider.defaultModel;
                     return (
-                        <Box key={m.id}>
-                            <Text color={active ? colors.purple : colors.dim}>
-                                {active ? "▶ " : "  "}
-                            </Text>
-                            <Text color={active ? colors.fg : colors.gray} bold={active}>
+                        <Row key={m.id} active={active}>
+                            <Text color={active ? colors.fg : colors.muted} bold={active}>
                                 {m.label}
                             </Text>
                             {isDefault ? (
                                 <Text color={colors.dim}>{"  · por defecto"}</Text>
                             ) : null}
-                        </Box>
+                        </Row>
                     );
                 })}
             </Box>
             <Box marginTop={1}>
-                <Text color={colors.purpleLight}>{`AI_MODEL · ${current.id}`}</Text>
+                <Text color={colors.dim}>{"AI_MODEL  "}</Text>
+                <Text color={colors.accent}>{current.id}</Text>
             </Box>
-        </Box>
+        </Panel>
     );
 }
 
@@ -132,15 +154,13 @@ function KeyInput({
         if (key.escape) onBack?.();
     });
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1}>
-            <Text bold color={colors.fg}>
-                {`${provider.icon}  Configura tu clave de ${provider.label}`}
-            </Text>
-            <Box marginTop={1} flexDirection="column">
-                <Text color={colors.dim}>{`Consíguela en ${provider.apiKeyUrl}`}</Text>
-            </Box>
-            <Box marginTop={1}>
-                <Text color={colors.purpleLight}>{`${provider.apiKeyEnv} ▸ `}</Text>
+        <Panel>
+            <StepHeading
+                title={`${provider.icon}  Configura tu clave de ${provider.label}`}
+                hint={`Consíguela en ${provider.apiKeyUrl}`}
+            />
+            <Box>
+                <Text color={colors.accent} bold>{`${provider.apiKeyEnv} ▸ `}</Text>
                 <TextInput
                     value={value}
                     onChange={setValue}
@@ -149,7 +169,7 @@ function KeyInput({
                     placeholder="pega tu clave…"
                 />
             </Box>
-        </Box>
+        </Panel>
     );
 }
 
@@ -166,20 +186,18 @@ function GithubInput({
         if (key.escape) onBack?.();
     });
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1}>
-            <Text bold color={colors.fg}>
-                Conecta tu cuenta de GitHub
+        <Panel>
+            <StepHeading
+                title="Conecta tu cuenta de GitHub"
+                hint="Necesito un token para listar tus Pull Requests pendientes."
+            />
+            <Text color={colors.dim}>
+                {"Genéralo en https://github.com/settings/tokens (scope: repo) y pégalo aquí."}
             </Text>
-            <Box marginTop={1} flexDirection="column">
-                <Text color={colors.gray}>
-                    Necesito un token para listar tus Pull Requests pendientes.
-                </Text>
-                <Text color={colors.dim}>
-                    {"Genéralo en https://github.com/settings/tokens (scope: repo) y pégalo aquí."}
-                </Text>
-            </Box>
             <Box marginTop={1}>
-                <Text color={colors.purpleLight}>{"GITHUB_TOKEN ▸ "}</Text>
+                <Text color={colors.accent} bold>
+                    {"GITHUB_TOKEN ▸ "}
+                </Text>
                 <TextInput
                     value={value}
                     onChange={setValue}
@@ -188,16 +206,23 @@ function GithubInput({
                     placeholder="ghp_…"
                 />
             </Box>
-        </Box>
+        </Panel>
     );
 }
 
 function StepDots({ total, current }: { total: number; current: number }) {
     return (
-        <Text color={colors.dim}>
-            {Array.from({ length: total }, (_, i) => (i === current ? "●" : "○")).join(" ")}
-            {`  paso ${current + 1}/${total}`}
-        </Text>
+        <Box>
+            <Text>
+                {Array.from({ length: total }, (_, i) => (
+                    <Text key={i} color={i === current ? colors.accent : colors.faint}>
+                        {i === current ? "●" : "○"}
+                        {i < total - 1 ? " " : ""}
+                    </Text>
+                ))}
+            </Text>
+            <Text color={colors.dim}>{`  paso ${current + 1}/${total}`}</Text>
+        </Box>
     );
 }
 
@@ -216,23 +241,17 @@ function SetupFooter({
 }) {
     const keys: [string, string][] =
         step === "provider" || step === "model"
-            ? [["↑↓", "elegir"], ["⏎", "continuar"]]
+            ? [
+                  ["↑↓", "elegir"],
+                  ["⏎", "continuar"],
+              ]
             : [["⏎", "guardar"]];
     if (canGoBack) keys.push(["esc", "atrás"]);
     keys.push(["ctrl+c", "salir"]);
     return (
-        <Box paddingX={1} justifyContent="space-between">
-            <Box gap={2}>
-                {keys.map(([k, label]) => (
-                    <Box key={k}>
-                        <Text color={colors.purpleLight} bold>
-                            {k}
-                        </Text>
-                        <Text color={colors.dim}>{` ${label}`}</Text>
-                    </Box>
-                ))}
-            </Box>
-            {total > 1 ? <StepDots total={total} current={current} /> : null}
+        <Box paddingX={1} justifyContent="space-between" columnGap={2} flexWrap="wrap">
+            {total > 1 ? <StepDots total={total} current={current} /> : <Box />}
+            <HintBar keys={keys} />
         </Box>
     );
 }
@@ -285,18 +304,18 @@ export function Setup({
 
     return (
         <Box flexDirection="column" flexGrow={1}>
-            <Box paddingX={1} paddingTop={1}>
+            <Box paddingX={1} marginBottom={1}>
                 {notice ? (
-                    <Text color={colors.warn}>{`⚠ ${notice}`}</Text>
+                    <Text color={colors.warn}>{`⚠  ${notice}`}</Text>
                 ) : (
-                    <>
-                        <Text color={colors.purpleLight} bold>
+                    <Box>
+                        <Text color={colors.accent} bold>
                             ¡Bienvenido!
                         </Text>
                         <Text color={colors.dim}>
                             {"  Vamos a dejar Git-Helper listo en unos segundos."}
                         </Text>
-                    </>
+                    </Box>
                 )}
             </Box>
             <Box flexGrow={1}>
