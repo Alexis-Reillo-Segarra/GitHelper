@@ -1,0 +1,17 @@
+import { defineConfig } from "tsup";
+
+export default defineConfig({
+    entry: ["src/index.ts"],
+    format: ["cjs"],
+    target: "node18",
+    platform: "node",
+    // Bundlea @repo/core (workspace) dentro del CLI para que el paquete publicado
+    // sea autocontenido y no dependa de "workspace:*". Las libs npm pesadas
+    // (ai, @ai-sdk/*, @octokit/rest, zod, commander, dotenv) se quedan como
+    // dependencias externas declaradas en package.json -> dependencies.
+    noExternal: ["@repo/core"],
+    clean: true,
+    sourcemap: false,
+    // Preserva el shebang del entry para que dist/index.js sea ejecutable.
+    banner: { js: "#!/usr/bin/env node" },
+});

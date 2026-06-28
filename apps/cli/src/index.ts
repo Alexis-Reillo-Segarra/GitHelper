@@ -7,7 +7,7 @@ const program = new Command();
 program
     .name('git-helper')
     .description('Analiza Pull Requests de GitHub usando Inteligencia Artificial')
-    .version('1.0.0');
+    .version('0.1.0');
 
 // Definimos el comando "analyze"
 program

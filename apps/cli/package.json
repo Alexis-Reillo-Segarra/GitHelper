@@ -1,19 +1,41 @@
 {
-  "name": "@repo/cli",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@alexis-reillo/git-helper",
+  "version": "0.1.0",
+  "description": "Analiza Pull Requests de GitHub usando Inteligencia Artificial, desde la terminal.",
+  "license": "MIT",
+  "bin": {
+    "git-helper": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
     "check-types": "tsc --noEmit"
   },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@repo/core": "workspace:*",
+    "@ai-sdk/google": "^4.0.2",
+    "@ai-sdk/openai": "^4.0.1",
+    "@octokit/rest": "^22.0.1",
+    "ai": "^7.0.3",
     "commander": "^15.0.0",
     "dotenv": "^17.4.2",
-    "tsx": "^4.7.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^20"
+    "@repo/core": "workspace:*",
+    "@types/node": "^20",
+    "tsup": "^8.0.0",
+    "tsx": "^4.7.0"
   }
 }
