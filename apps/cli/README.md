@@ -17,8 +17,18 @@ Requiere **Node.js >= 18**.
 
 ## Uso
 
+### Comandos
+
+| Comando             | Alias     | Descripción                                  |
+| ------------------- | --------- | -------------------------------------------- |
+| `git-helper`        | —         | Muestra el banner y la ayuda.                |
+| `git-helper list`   | `ls`      | Lista tus Pull Requests pendientes de revisar (requiere `GITHUB_TOKEN`). |
+| `git-helper review` | `analyze` | Analiza un PR concreto con IA.               |
+
+#### `review`
+
 ```bash
-git-helper analyze --owner <owner> --repo <repo> --pr <number>
+git-helper review --owner <owner> --repo <repo> --pr <number>
 ```
 
 | Opción            | Alias | Descripción                          |
@@ -26,6 +36,17 @@ git-helper analyze --owner <owner> --repo <repo> --pr <number>
 | `--owner <owner>` | `-o`  | Propietario del repo (ej: `vercel`)  |
 | `--repo <repo>`   | `-r`  | Nombre del repositorio (ej: `next.js`) |
 | `--pr <number>`   | `-p`  | Número del Pull Request              |
+
+#### `list`
+
+```bash
+export GITHUB_TOKEN=ghp_...
+git-helper list
+```
+
+> **Tip visual:** la interfaz usa color truecolor y arte ASCII. Para que la
+> mascota y los iconos se vean perfectos, usa una terminal moderna (Windows
+> Terminal, iTerm2…) con una [Nerd Font](https://www.nerdfonts.com/).
 
 ## Configuración (variables de entorno)
 
