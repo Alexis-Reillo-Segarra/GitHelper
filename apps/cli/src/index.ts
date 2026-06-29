@@ -40,7 +40,18 @@ program
     .requiredOption("-r, --repo <repo>", "nombre del repositorio (ej: next.js)")
     .requiredOption("-p, --pr <number>", "número del Pull Request", (v) => parseInt(v, 10))
     .option("--json", "imprime el resultado en JSON (sin formato visual)")
-    .action(async (opts: { owner: string; repo: string; pr: number; json?: boolean }) => {
+    .option(
+        "--no-optimize",
+        "envía el diff íntegro sin podar ruido (lockfiles, generados, binarios…); gasta más tokens",
+    )
+    .action(
+        async (opts: {
+            owner: string;
+            repo: string;
+            pr: number;
+            json?: boolean;
+            optimize: boolean;
+        }) => {
         const ref = `${opts.owner}/${opts.repo} #${opts.pr}`;
         const { GitHubAIService } = await import("@repo/core");
         const spinner = opts.json
@@ -49,7 +60,9 @@ program
                   text: c.gray(`Analizando ${ref} con IA…`),
                   color: "magenta",
               }).start();
-        const service = new GitHubAIService(process.env.GITHUB_TOKEN);
+        const service = new GitHubAIService(process.env.GITHUB_TOKEN, {
+            optimizeTokens: opts.optimize,
+        });
         try {
             const analysis = await service.analyzePR(opts.owner, opts.repo, opts.pr);
             spinner?.stop();
