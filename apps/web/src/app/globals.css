@@ -16,6 +16,11 @@
   --ring: #3a3a3a; /* anillo de foco discreto */
   --success: #4ade80; /* verde apto */
   --danger: #f87171; /* rojo no apto / bugs */
+  /* Severidad de los problemas: lenguaje de color de primera clase.
+     Es el dato más valioso del análisis, así que tiene tokens propios. */
+  --sev-critico: #f87171; /* rojo: bloquea */
+  --sev-mayor: #fbbf24; /* ámbar: cambios mayores */
+  --sev-menor: #38bdf8; /* sky: informativo */
 }
 
 @theme inline {
@@ -30,6 +35,9 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-danger: var(--danger);
+  --color-sev-critico: var(--sev-critico);
+  --color-sev-mayor: var(--sev-mayor);
+  --color-sev-menor: var(--sev-menor);
   /* Conservamos las variables de fuente definidas en layout.tsx */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -60,4 +68,27 @@ body {
 code,
 kbd {
   font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+/* Barrido del anillo de puntuación: de vacío hasta su valor final.
+   El offset final lo fija el inline-style; aquí solo animamos desde vacío. */
+@keyframes gauge-sweep {
+  from {
+    stroke-dashoffset: var(--gauge-circ);
+  }
+}
+
+/* Entrada discreta para el veredicto y las listas. */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gauge-progress,
+  .fade-in-up {
+    animation: none !important;
+  }
 }
