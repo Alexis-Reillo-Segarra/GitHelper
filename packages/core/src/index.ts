@@ -14,6 +14,12 @@ import {
 // clave de IA) en vez de depender del texto del mensaje.
 export { GitHubApiError } from "./github";
 
+// Optimización de tokens: poda del diff (lockfiles, generados, binarios…) antes
+// de enviarlo al modelo. Pura y determinista; ver `diff-optimizer.ts`.
+import { optimizeDiff } from "./diff-optimizer";
+export { optimizeDiff } from "./diff-optimizer";
+export type { ArchivoOmitido, DiffOptimizado, MotivoOmision } from "./diff-optimizer";
+
 // Recomendación final del análisis, alineada con la filosofía de Google
 // ("mejora la salud del código" en vez de "perfección"): una escala corta y
 // categórica es más fiable y consistente que una nota holística 1-10.
@@ -353,6 +359,12 @@ export function computeScore(problemas: ReviewProblema[]): {
 // Reduce la varianza entre sesiones. Configurable por entorno (AI_ENSEMBLE_RUNS).
 const DEFAULT_ENSEMBLE_RUNS = 3;
 
+// Tope de tokens de salida por revisión. La salida es estructurada y acotada
+// (resumen de 2 frases + lista de problemas), así que con margen de sobra: evita
+// que una generación descontrolada dispare el coste de salida sin riesgo de
+// truncar el JSON en PRs normales.
+const MAX_OUTPUT_TOKENS = 2000;
+
 // 2. Nuestro servicio principal
 export class GitHubAIService {
     private gh: GitHubClient;
@@ -369,6 +381,11 @@ export class GitHubAIService {
             // las variables de entorno (comportamiento por defecto de la CLI).
             apiKey?: string;
             baseURL?: string;
+            // Poda el ruido no revisable del diff (lockfiles, generados,
+            // binarios…) para ahorrar tokens. Por defecto activado: solo elimina
+            // contenido sin valor para una revisión. Poner a `false` para enviar
+            // el diff íntegro.
+            optimizeTokens?: boolean;
         },
     ) {
         this.gh = new GitHubClient(token);
@@ -499,6 +516,8 @@ export class GitHubAIService {
             schema: ReviewModelSchema,
             // temperature 0 = detección (casi) determinista
             temperature: 0,
+            // Acota el coste de salida; la respuesta estructurada cabe de sobra.
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
             // Los estándares van como `system` (estable); el diff como `prompt` (variable)
             system: SCORING_RUBRIC,
             prompt: `Detecta y clasifica los problemas del siguiente diff siguiendo los estándares.\n\nDiff:\n${diff}`,
@@ -527,8 +546,30 @@ export class GitHubAIService {
         console.log(`[Core] Descargando diff de ${owner}/${repo}#${prNumber}...`);
         const diff = await this.getPRDiff(owner, repo, prNumber);
 
+        // Optimización de tokens: podamos el ruido no revisable (lockfiles,
+        // ficheros generados, binarios, minificados, snapshots) ANTES de truncar.
+        // Reduce el coste de cada llamada y, al multiplicarse por el nº de
+        // ejecuciones del ensemble, evita facturas innecesarias. Además, al
+        // quitar ruido, el truncado conserva más código realmente revisable.
+        const aplicarOpt = this.aiOptions?.optimizeTokens ?? true;
+        let diffParaModelo = diff;
+        if (aplicarOpt) {
+            const { diff: podado, omitidos, charsOriginal, charsOptimizado } =
+                optimizeDiff(diff);
+            diffParaModelo = podado;
+            if (omitidos.length > 0) {
+                const ahorro =
+                    charsOriginal > 0
+                        ? Math.round((1 - charsOptimizado / charsOriginal) * 100)
+                        : 0;
+                console.log(
+                    `[Core] Optimización de tokens: ${omitidos.length} archivo(s) omitido(s), -${ahorro}% caracteres (${charsOriginal} → ${charsOptimizado}).`,
+                );
+            }
+        }
+
         // Los modelos de IA tienen límite de texto. Si el PR es enorme, cortamos el diff para no saltarnos el límite
-        const diffLimitado = diff.substring(0, 20000);
+        const diffLimitado = diffParaModelo.substring(0, 20000);
 
         if (diffLimitado.trim().length === 0) {
             throw new Error("El PR no tiene cambios de código (diff vacío).");

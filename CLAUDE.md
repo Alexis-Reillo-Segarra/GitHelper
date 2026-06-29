@@ -32,9 +32,11 @@ dentro de los route handlers de Next (ventaja del monorepo).
 ### `packages/core` (el corazón)
 
 - **`src/index.ts`** — `GitHubAIService`, la clase principal:
-  - `analyzePR(owner, repo, pr)` — descarga el diff, lo trunca a 20 000 chars,
-    lanza un **ensemble** de N ejecuciones en paralelo (`Promise.allSettled`,
-    tolera fallos parciales) y devuelve la **mediana por puntuación**.
+  - `analyzePR(owner, repo, pr)` — descarga el diff, lo **optimiza para ahorrar
+    tokens** (`optimizeDiff`, ver abajo), lo trunca a 20 000 chars, lanza un
+    **ensemble** de N ejecuciones en paralelo (`Promise.allSettled`, tolera
+    fallos parciales) y devuelve la **mediana por puntuación**. La optimización
+    se puede desactivar con `aiOptions.optimizeTokens: false`.
   - `runReview` (privado) — una sola revisión: `generateObject` (Vercel AI SDK)
     con `temperature: 0`, `SCORING_RUBRIC` como `system` y el diff como `prompt`.
     El modelo rellena `ReviewModelSchema` (interno); luego `computeScore` deriva
@@ -49,6 +51,13 @@ dentro de los route handlers de Next (ventaja del monorepo).
   - `resolveModel` — selecciona proveedor IA y **carga el SDK de forma perezosa**
     (import dinámico de `@ai-sdk/*`) para acelerar arranque/cold-start.
   - `PRAnalysisSchema` / `PRAnalysis` — forma pública del análisis (Zod).
+- **`src/diff-optimizer.ts`** — `optimizeDiff(diff)`: poda **determinista** del
+  diff antes de enviarlo a la IA, para ahorrar tokens (clave: el ensemble
+  multiplica el coste por N llamadas). Elimina ficheros sin valor para revisar
+  (lockfiles, generados/vendorizados como `dist/`/`node_modules/`, minificados,
+  `.map`, binarios y snapshots) y deja una nota resumen de lo omitido. Función
+  pura, agnóstica del proveedor; devuelve el diff podado, la lista de omitidos y
+  el ahorro de caracteres.
 - **`src/github.ts`** — `GitHubClient`: wrapper fino sobre `fetch` global
   (no Octokit, se eliminó para ahorrar ~6,7 MB). `GitHubApiError` preserva el
   **código de estado** para que la UI enrute por status (no por texto).
