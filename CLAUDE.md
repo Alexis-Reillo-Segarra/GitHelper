@@ -131,7 +131,12 @@ npx tsx src/index.ts list
 
 - **Vitest** en los tres paquetes (`*.test.ts(x)`), tests junto al código.
 - Web además: **Playwright** e2e en `apps/web/e2e/` (`pnpm --filter @repo/web test:e2e`)
-  y tests de accesibilidad con axe (`src/test/a11y.ts`).
+  y tests de accesibilidad con axe (`src/test/a11y.ts`). Los flujos tras login
+  (que exigen credenciales + IA) se testean en navegador real vía **rutas de
+  preview solo-dev** con datos mock en `src/app/dev/*` (p. ej. `/dev/result-preview`):
+  gateadas por `NODE_ENV` y, bajo el build de producción de los e2e, por la env
+  `ENABLE_DEV_PREVIEW=1` (la inyecta `playwright.config.ts`). El proxy las excluye.
+  Las capturas van a `e2e/__screenshots__/` (ignorado).
 - Hay skills locales en `.claude/skills/` (p. ej. `tdd`, `requesting-code-review`,
   `pre-push-check`, `analyze-pr`, `run-web`).
 
@@ -143,6 +148,10 @@ npx tsx src/index.ts list
 - Errores de GitHub se enrutan por **código de estado** (`GitHubApiError.status`),
   nunca por el texto del mensaje.
 - Secretos: nunca commitear `.env`/`.env.local`. Hay skill `pre-push-check`.
+- **Ramas**: prefijo según el tipo de trabajo — `feature/` (nuevas
+  funcionalidades y mejoras), `fix/` (correcciones), `chore/` (mantenimiento).
+  Nombre en kebab-case tras el prefijo (p. ej. `feature/web-ui-ux-improvements`).
+  Las ramas parten siempre de `main`.
 
 ## Mantenimiento de este archivo
 

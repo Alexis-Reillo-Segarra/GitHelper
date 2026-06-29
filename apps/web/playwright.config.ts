@@ -23,5 +23,8 @@ export default defineConfig({
         // La app arranca sin credenciales: el proxy redirige al asistente y el
         // asistente no contacta con ningún servicio hasta que el usuario envía
         // sus claves, así que no hace falta ninguna variable de entorno.
+        // `ENABLE_DEV_PREVIEW` habilita las rutas /dev (preview de componentes
+        // con datos mock) bajo el build de producción, para los e2e visuales.
+        env: { ENABLE_DEV_PREVIEW: "1" },
     },
 });

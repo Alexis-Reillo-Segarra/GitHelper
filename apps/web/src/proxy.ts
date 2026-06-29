@@ -19,10 +19,12 @@ export const config = {
     /*
      * Protege todas las rutas excepto:
      * - login (asistente de configuración)
+     * - dev (previsualizaciones solo-dev de componentes; la propia ruta se
+     *   bloquea en producción, así que no expone nada)
      * - api (los route handlers se autoprotegen y devuelven JSON 401)
      * - _next/static, _next/image (assets internos de Next)
      * - favicon.ico y archivos .svg (assets estáticos)
      */
-    "/((?!login|api|_next/static|_next/image|favicon.ico|.*\\.svg$).*)",
+    "/((?!login|dev|api|_next/static|_next/image|favicon.ico|.*\\.svg$).*)",
   ],
 };
